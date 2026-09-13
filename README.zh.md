@@ -22,6 +22,12 @@
 
 上述配置块是 profile `cordis.patch.yml` 中的可选覆盖；bundle 已经拥有 `progressive-tools` 行。`eagerTools` 只应包含真正稳定、需要直接声明的精确工具名。未知 eager 名称会让 assembly 失败。条目数、字素数和结果 UTF-8 字节上限都会在成功返回前强制执行。
 
+## 仅延迟 MCP 工具
+
+在上面的配置块中设置 `deferTools: mcp`，只延迟 DSH MCP 客户端使用的 `mcp__<server>__<tool>` 命名空间。其他可见工具立即出现在 Native/Both 的工具声明和 Code SDK 中，首次组装之后注册的普通工具也自动直接暴露。`eagerTools` 可额外直接暴露指定 MCP 工具。搜索、描述和兜底调用只覆盖延迟工具；已声明的工具无需发现步骤即可直接调用。
+
+默认值 `deferTools: all` 对 `eagerTools` 以外的全部工具启用发现。在 `mcp` 配置下，eager 集合还包含当前作用域的全部普通工具。MCP 目录变动保持前缀稳定；普通工具的注册和移除会改变声明。每次组装和发现调用均使用对应作用域的当前注册表。
+
 ## 各模式的稳定表面
 
 | 有效模式 | 模型可见的稳定工具 | 描述后的调用方式 |
@@ -55,8 +61,9 @@ Harness 请求对象保持冻结与只读。插件通过公开的 `llm/stream` w
 ```markdown
 ## Progressive tool disclosure
 
-Start with search_tools({}) or search_tools({ query: "*" }) when you need the complete lightweight catalog of all available names and summaries. A text query is only an optional ranking filter and falls back to that catalog when nothing matches.
-Call describe_tools with only the exact names you intend to use.
+Use tools already declared in this interface or SDK directly; they do not require search_tools or describe_tools.
+For deferred tools, start with search_tools({}) or search_tools({ query: "*" }) when you need their complete lightweight catalog of names and summaries. A text query is only an optional ranking filter and falls back to that catalog when nothing matches.
+Call describe_tools with only the exact deferred tool names you intend to use.
 describe_tools returns the exact input and output schemas; in Code Mode it also returns the active-runtime SDK excerpt.
 On a later model step, issue an ordinary tool call with the returned exact name and arguments.
 If the interface declares invoke_tool instead, pass it that exact name and arguments.

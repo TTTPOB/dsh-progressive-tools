@@ -22,6 +22,12 @@ Follow [`INSTALL.md`](INSTALL.md) and install this standalone bundle into a dsh 
 
 The configuration block above is an optional override in the profile's `cordis.patch.yml`; the bundle already owns the `progressive-tools` row. `eagerTools` contains exact, genuinely stable tools that remain declared directly. Unknown eager names fail assembly. Every count, grapheme, and rendered UTF-8 result limit is enforced before a successful discovery result returns.
 
+## MCP-only disclosure
+
+Set `deferTools: mcp` in the configuration block above to defer only tools named `mcp__<server>__<tool>`, the namespace used by DSH's MCP client. All other visible tools are declared immediately in Native/Both and in the Code SDK, including tools registered after the first assembly. `eagerTools` can additionally expose selected MCP tools. Search, describe, and fallback invocation cover only deferred tools; already declared tools can be called directly without discovery.
+
+The default `deferTools: all` preserves discovery for every tool outside `eagerTools`. With `mcp`, the eager set also includes all ordinary tools in the current scope. MCP catalog changes leave the prefix stable; ordinary tool registration or removal changes the declarations. Each assembly and discovery call uses its own scope's current registry.
+
 ## Stable mode surfaces
 
 | Effective mode | Stable model-visible tools | Invocation after describe |
@@ -55,8 +61,9 @@ Harness request objects stay frozen and read-only. The plugin uses the public `l
 ```markdown
 ## Progressive tool disclosure
 
-Start with search_tools({}) or search_tools({ query: "*" }) when you need the complete lightweight catalog of all available names and summaries. A text query is only an optional ranking filter and falls back to that catalog when nothing matches.
-Call describe_tools with only the exact names you intend to use.
+Use tools already declared in this interface or SDK directly; they do not require search_tools or describe_tools.
+For deferred tools, start with search_tools({}) or search_tools({ query: "*" }) when you need their complete lightweight catalog of names and summaries. A text query is only an optional ranking filter and falls back to that catalog when nothing matches.
+Call describe_tools with only the exact deferred tool names you intend to use.
 describe_tools returns the exact input and output schemas; in Code Mode it also returns the active-runtime SDK excerpt.
 On a later model step, issue an ordinary tool call with the returned exact name and arguments.
 If the interface declares invoke_tool instead, pass it that exact name and arguments.

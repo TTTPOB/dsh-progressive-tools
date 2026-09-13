@@ -141,6 +141,70 @@ function directValue(result: Awaited<ReturnType<typeof direct>>) {
 }
 
 describe('dsh-progressive-tools', () => {
+  it('defaults to all tools and rejects an invalid disclosure selection', () => {
+    expect(Config({}).deferTools).toBe('all')
+    expect(Config({ deferTools: 'mcp' }).deferTools).toBe('mcp')
+    expect(() => Config({ deferTools: 'invalid' as 'mcp' })).toThrow()
+    expect(() => apply(new Context(), { deferTools: 'invalid' as 'mcp' })).toThrow(/deferTools/)
+  })
+
+  it.each(['native', 'ptc', 'both'] as const)('exposes ordinary tools immediately and discovers only MCP in %s', async (mode) => {
+    const mounted = await mount({ deferTools: 'mcp', eagerTools: ['read_file'] }, { mode })
+    const { ctx, agent, scope } = mounted
+    const register = (target: Context, toolName: string) => target.tools.register(defineTool({
+      name: toolName,
+      description: 'Echo a message.',
+      parameters: { message: { type: 'string', required: true } },
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: args => Promise.resolve(args.message),
+    }))
+    const removeMcp = register(ctx, 'mcp__fixture__echo')
+    try {
+      const before = await ctx.systemPrompt.assemble({ scope: agent })
+      const names = before.tools.map(tool => tool.name)
+      const sdk = before.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+      for (const ordinary of ['read_file', 'write_file', 'web_search']) {
+        if (mode !== 'ptc') expect(names).toContain(ordinary)
+        if (mode !== 'native') expect(sdk).toContain(ordinary)
+      }
+      expect(names).not.toContain('mcp__fixture__echo')
+      expect(sdk).not.toContain('mcp__fixture__echo')
+      expect(names.filter(name => name === 'read_file')).toHaveLength(mode === 'ptc' ? 0 : 1)
+      const call = async (name: string, args: unknown) => mode === 'ptc'
+        ? valueOf(await nested(mounted, name, args)) : directValue(await direct(mounted, name, args))
+      expect(await call(SEARCH_TOOLS_NAME, {})).toMatchObject({
+        total: 1, matches: [{ name: 'mcp__fixture__echo' }],
+      })
+      expect(await call(DESCRIBE_TOOLS_NAME, { names: ['mcp__fixture__echo'] })).toMatchObject({
+        tools: [{ name: 'mcp__fixture__echo', parameters: { properties: { message: { type: 'string' } } } }],
+      })
+      expect(await call('read_file', { path: 'visible.txt' })).toEqual({ text: 'read:visible.txt' })
+      expect(await call('mcp__fixture__echo', { message: 'discovered' })).toBe('discovered')
+      if (mode === 'native') {
+        expect(await call(INVOKE_TOOL_NAME, { name: 'mcp__fixture__echo', arguments: { message: 'fallback' } })).toBe('fallback')
+      }
+      const removeOrdinary = register(scope.ctx, 'local_echo')
+      const changed = await ctx.systemPrompt.assemble({ scope: agent })
+      expect(JSON.stringify(changed)).toContain('local_echo')
+      const other = { id: SessionId('other'), session: Session.create(SessionId('other')) } as Agent
+      let otherScope!: Scope
+      await ctx.plugin(Object.assign((inner: Context) => { otherScope = createScope(inner, other) }, { inject: ['tools', 'systemPrompt'] }))
+      otherScope.ctx.tools.presentAs(mode)
+      const [, otherAssembly] = await Promise.all([
+        ctx.systemPrompt.assemble({ scope: agent }), ctx.systemPrompt.assemble({ scope: other }),
+      ])
+      expect(JSON.stringify(otherAssembly)).not.toContain('local_echo')
+      removeOrdinary()
+      removeMcp()
+      expect(await ctx.systemPrompt.assemble({ scope: agent })).toEqual(before)
+      expect(await call(SEARCH_TOOLS_NAME, {})).toMatchObject({ total: 0, matches: [] })
+      await mounted.row.dispose()
+      expect(ctx.tools.get(SEARCH_TOOLS_NAME, agent)).toBeUndefined()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('declares its exact dependencies, validates config, and mounts globally', async () => {
     expect(inject).toEqual(['tools', 'systemPrompt', 'llm'])
     const ctx = new Context()

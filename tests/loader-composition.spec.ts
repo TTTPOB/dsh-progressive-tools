@@ -113,7 +113,7 @@ afterEach(async () => {
 })
 
 describe('dsh-progressive-tools real Loader composition', () => {
-  it('loads independently and projects stable Native, Code, and Both surfaces', async () => {
+  it.each(['all', 'mcp'] as const)('loads independently with %s disclosure in Native, Code, and Both', async (deferTools) => {
     root = await mkdtemp(join(tmpdir(), 'dsh-progressive-tools-loader-'))
     const configPath = join(root, 'cordis.yml')
     const parsed = yaml.load(
@@ -131,7 +131,7 @@ describe('dsh-progressive-tools real Loader composition', () => {
       { id: 'system-prompt', name: 'test-system-prompt' },
       { id: 'llm', name: 'test-llm' },
       { id: 'tools', name: 'test-tools', config: { mode: 'native' } },
-      ...bundleRows.map(row => ({ ...row, config: { maxSearchResults: 1 } })),
+      ...bundleRows.map(row => ({ ...row, config: { maxSearchResults: 1, deferTools } })),
       { id: 'fixture', name: 'test-fixture' },
     ], { schema: entryListSchema, noRefs: true }))
 
@@ -161,15 +161,16 @@ describe('dsh-progressive-tools real Loader composition', () => {
     expect(state?.wire).toEqual([RUN_CODE_NAME])
     expect(state?.sdk).toContain(Discovery.SEARCH_TOOLS_NAME)
     expect(state?.sdk).toContain(Discovery.DESCRIBE_TOOLS_NAME)
-    expect(state?.sdk).not.toContain('fixture_weather')
+    const ordinary = deferTools === 'mcp' ? ['fixture_weather', 'fixture_write'] : []
+    expect(state?.sdk.includes('fixture_weather')).toBe(deferTools === 'mcp')
     expect(state?.search).toMatchObject({
-      total: 2,
+      total: deferTools === 'mcp' ? 0 : 2,
       truncated: false,
-      matches: [{ name: 'fixture_weather' }, { name: 'fixture_write' }],
+      matches: deferTools === 'mcp' ? [] : [{ name: 'fixture_weather' }, { name: 'fixture_write' }],
     })
     expect(state?.hidden).toBe('sunny:Paris')
     expect(state?.hasRunCode).toBe(true)
-    expect(state?.nativeWire.toSorted()).toEqual([Discovery.SEARCH_TOOLS_NAME, Discovery.DESCRIBE_TOOLS_NAME, Discovery.INVOKE_TOOL_NAME].sort())
-    expect(state?.bothWire.toSorted()).toEqual([RUN_CODE_NAME, Discovery.SEARCH_TOOLS_NAME, Discovery.DESCRIBE_TOOLS_NAME].sort())
+    expect(state?.nativeWire.toSorted()).toEqual([...ordinary, Discovery.SEARCH_TOOLS_NAME, Discovery.DESCRIBE_TOOLS_NAME, Discovery.INVOKE_TOOL_NAME].sort())
+    expect(state?.bothWire.toSorted()).toEqual([...ordinary, RUN_CODE_NAME, Discovery.SEARCH_TOOLS_NAME, Discovery.DESCRIBE_TOOLS_NAME].sort())
   })
 })

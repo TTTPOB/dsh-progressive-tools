@@ -32,6 +32,8 @@ const DISCOVERY_NAMES = new Set([RUN_CODE_NAME, SEARCH_TOOLS_NAME, DESCRIBE_TOOL
 
 /** Plugin config: every catalog bound and eager declaration is deployment-owned. */
 export interface Config {
+  /** Defer all non-eager tools, or only tools in DSH's mcp__ namespace. */
+  deferTools?: 'all' | 'mcp'
   /** Stable non-discovery tools declared eagerly on the projected model surface. */
   eagerTools?: string[]
   /** Maximum filtered matches, or explicitly limited catalog entries, one search may return. */
@@ -49,6 +51,7 @@ export interface Config {
 }
 
 const DEFAULTS = {
+  deferTools: 'all',
   eagerTools: [] as string[],
   maxSearchResults: 10,
   maxDescribeTools: 5,
@@ -60,6 +63,7 @@ const DEFAULTS = {
 
 /** Validated Loader schema for Config. */
 export const Config: z<Config> = z.object({
+  deferTools: z.union(['all', 'mcp']).default(DEFAULTS.deferTools),
   eagerTools: z.array(z.string()).default([]),
   maxSearchResults: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULTS.maxSearchResults),
   maxDescribeTools: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULTS.maxDescribeTools),
@@ -75,6 +79,7 @@ export const name = 'agent-progressive-tools'
 export const inject = ['tools', 'systemPrompt', 'llm']
 
 interface ResolvedConfig {
+  deferTools: 'all' | 'mcp'
   eagerTools: string[]
   maxSearchResults: number
   maxDescribeTools: number
@@ -100,6 +105,7 @@ interface SearchMatch {
 /** Resolve defaults for direct programmatic callers as well as the Loader. */
 function resolveConfig(config: Config): ResolvedConfig {
   const resolved: ResolvedConfig = {
+    deferTools: config.deferTools ?? DEFAULTS.deferTools,
     eagerTools: [...config.eagerTools ?? DEFAULTS.eagerTools],
     maxSearchResults: config.maxSearchResults ?? DEFAULTS.maxSearchResults,
     maxDescribeTools: config.maxDescribeTools ?? DEFAULTS.maxDescribeTools,
@@ -108,8 +114,11 @@ function resolveConfig(config: Config): ResolvedConfig {
     maxToolNameChars: config.maxToolNameChars ?? DEFAULTS.maxToolNameChars,
     maxResultBytes: config.maxResultBytes ?? DEFAULTS.maxResultBytes,
   }
+  if (resolved.deferTools !== 'all' && resolved.deferTools !== 'mcp') {
+    throw new Error('dsh-progressive-tools: deferTools must be all or mcp')
+  }
   for (const [key, value] of Object.entries(resolved)) {
-    if (key === 'eagerTools') continue
+    if (key === 'eagerTools' || key === 'deferTools') continue
     if (!Number.isSafeInteger(value) || (value as number) < 1) {
       throw new Error(`dsh-progressive-tools: ${key} must be a positive safe integer`)
     }
@@ -128,10 +137,10 @@ function resolveConfig(config: Config): ResolvedConfig {
 }
 
 /** One scope's executable catalog, projected from ToolRuntime's authoritative view. */
-function catalog(ctx: Context, scope: ScopeKey | undefined, omitted: ReadonlySet<string>): CatalogTool[] {
+function catalog(ctx: Context, scope: ScopeKey | undefined, omitted: ReadonlySet<string>, deferTools: 'all' | 'mcp'): CatalogTool[] {
   const result: CatalogTool[] = []
   for (const schema of ctx.tools.schemas(scope)) {
-    if (omitted.has(schema.name)) continue
+    if (omitted.has(schema.name) || (deferTools === 'mcp' && !schema.name.startsWith('mcp__'))) continue
     const definition = ctx.tools.get(schema.name, scope)
     if (definition === undefined) continue
     result.push({
@@ -271,8 +280,9 @@ function discoveryInstructions(mode: PresentationMode): string {
   return [
     '## Progressive tool disclosure',
     '',
-    'Start with search_tools({}) or search_tools({ query: "*" }) when you need the complete lightweight catalog of all available names and summaries. A text query is only an optional ranking filter and falls back to that catalog when nothing matches.',
-    'Call describe_tools with only the exact names you intend to use.',
+    'Use tools already declared in this interface or SDK directly; they do not require search_tools or describe_tools.',
+    'For deferred tools, start with search_tools({}) or search_tools({ query: "*" }) when you need their complete lightweight catalog of names and summaries. A text query is only an optional ranking filter and falls back to that catalog when nothing matches.',
+    'Call describe_tools with only the exact deferred tool names you intend to use.',
     'describe_tools returns the exact input and output schemas; in Code Mode it also returns the active-runtime SDK excerpt.',
     invocation,
     '',
@@ -286,7 +296,7 @@ function compactAssembly(
   ctx: Context,
   assembly: PromptAssembly,
   scope: ScopeKey | undefined,
-  eagerTools: readonly string[],
+  config: ResolvedConfig,
   discoveryDefinitions: readonly ToolDefinition[],
   invokeDefinition: ToolDefinition,
   recordMode: (scope: ScopeKey | undefined, mode: PresentationMode) => void,
@@ -303,6 +313,12 @@ function compactAssembly(
   recordMode(scope, mode)
 
   const known = ctx.tools.schemas(scope).map(tool => tool.name)
+  const eagerTools = new Set(config.eagerTools)
+  if (config.deferTools === 'mcp') {
+    for (const toolName of known) {
+      if (!DISCOVERY_NAMES.has(toolName) && !toolName.startsWith('mcp__')) eagerTools.add(toolName)
+    }
+  }
   const schemas = discoveryDefinitions.map((expected) => {
     const current = ctx.tools.get(expected.name, scope)
     if (current !== expected) {
@@ -357,7 +373,7 @@ export function apply(ctx: Context, config: Config): void {
 
   const searchTool = defineTool({
     name: SEARCH_TOOLS_NAME,
-    description: 'List or loosely search all available tools by lightweight name and description; schemas remain hidden until describe_tools.',
+    description: 'List or loosely search available deferred tools by lightweight name and description; schemas remain hidden until describe_tools.',
     parameters: {
       query: { type: 'string', description: 'Optional capability words ranked independently (OR), not all required; omit or use * for the complete lightweight catalog.' },
       limit: { type: 'integer', description: 'Optional page size; explicit values are capped by plugin configuration.' },
@@ -391,7 +407,7 @@ export function apply(ctx: Context, config: Config): void {
       if (args.limit !== undefined && (!Number.isSafeInteger(args.limit) || args.limit < 1)) {
         throw new Error('search_tools limit must be a positive safe integer')
       }
-      const tools = catalog(ctx, exec.agent, omitted)
+      const tools = catalog(ctx, exec.agent, omitted, resolved.deferTools)
       const catalogMatches: SearchMatch[] = tools.map(tool => ({
         name: tool.name,
         description: summarize(tool.description, resolved.maxSummaryChars),
@@ -462,7 +478,7 @@ export function apply(ctx: Context, config: Config): void {
         }
       }
       const names = [...new Set(args.names)]
-      const tools = catalog(ctx, exec.agent, omitted)
+      const tools = catalog(ctx, exec.agent, omitted, resolved.deferTools)
       const byName = new Map(tools.map(tool => [tool.name, tool]))
       const unknown = names.filter(toolName => !byName.has(toolName))
       if (unknown.length > 0) {
@@ -512,7 +528,7 @@ export function apply(ctx: Context, config: Config): void {
       if (graphemes(args.name).length > resolved.maxToolNameChars) {
         throw new Error(`invoke_tool name exceeds the configured ${String(resolved.maxToolNameChars)}-character limit`)
       }
-      const available = new Set(catalog(ctx, exec.agent, omitted).map(tool => tool.name))
+      const available = new Set(catalog(ctx, exec.agent, omitted, resolved.deferTools).map(tool => tool.name))
       if (!available.has(args.name)) {
         throw new Error(`invoke_tool received unknown or unavailable tool ${JSON.stringify(args.name)}`)
       }
@@ -549,7 +565,7 @@ export function apply(ctx: Context, config: Config): void {
     // A host-plane bundle mount sees agentless administrative assemblies too.
     // They have no presentation mode or execution scope to project.
     if (context.scope === undefined) return assembly
-    return compactAssembly(ctx, assembly, context.scope, resolved.eagerTools, definitions, invokeTool, (scope, mode) => {
+    return compactAssembly(ctx, assembly, context.scope, resolved, definitions, invokeTool, (scope, mode) => {
       if (scope !== undefined) presentationModes.set(scope, mode)
     })
   }, { prepend: true })
