@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ToolCallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { DESCRIBE_TOOLS_NAME, INVOKE_TOOL_NAME, SEARCH_TOOLS_NAME } from '../src/index.ts'
 import { installNativeDeferredBridge } from '../src/native-deferred.ts'
@@ -80,7 +80,7 @@ function request(tools = discoveryTools): GenerateOptions {
         source: { kind: 'model', provider: 'fixture', model: 'fixture-model' },
         content: [{
           type: 'tool-call',
-          id: CallId('describe-call'),
+          id: ToolCallId('describe-call'),
           name: DESCRIBE_TOOLS_NAME,
           arguments: '{"names":["pwsh"]}',
         }],
@@ -88,10 +88,10 @@ function request(tools = discoveryTools): GenerateOptions {
       {
         id: 'result' as never,
         role: 'user',
-        source: { kind: 'tool', callId: CallId('describe-call') },
+        source: { kind: 'tool', callId: ToolCallId('describe-call') },
         content: [{
           type: 'tool-result',
-          toolCallId: CallId('describe-call'),
+          toolCallId: ToolCallId('describe-call'),
           content: [{
             type: 'text',
             text: JSON.stringify({

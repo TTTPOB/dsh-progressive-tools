@@ -1,12 +1,6 @@
 import { execFileSync } from 'node:child_process'
 
-const npmCli = process.env.npm_execpath
-if (npmCli === undefined) {
-  throw new Error('verify:package must run through npm')
-}
-
-const output = execFileSync(process.execPath, [
-  npmCli,
+const output = execFileSync('npm', [
   'pack',
   '--dry-run',
   '--json',

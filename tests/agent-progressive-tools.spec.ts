@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { CallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -53,7 +53,7 @@ interface Mounted {
 }
 
 /** Build one host catalog and mount the plugin inside an agent scope. */
-async function mount(config: Config = {}, options: { language?: string; mode?: 'native' | 'code' | 'both'; runtime?: boolean } = {}): Promise<Mounted> {
+async function mount(config: Config = {}, options: { language?: string; mode?: 'native' | 'ptc' | 'both'; runtime?: boolean } = {}): Promise<Mounted> {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SystemPrompt, {})
@@ -93,7 +93,7 @@ async function mount(config: Config = {}, options: { language?: string; mode?: '
   let scope!: Scope
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
     { inject: ['tools', 'systemPrompt'] }))
-  scope.ctx.tools.presentAs(options.mode ?? 'code')
+  scope.ctx.tools.presentAs(options.mode ?? 'ptc')
   const row = scope.ctx.plugin({ name, inject: [...inject], Config, apply }, config)
   await row.await()
   return { ctx, scope, agent, row, runtime: ctx.get('codeRuntime') as FakeRuntime | undefined }
@@ -108,7 +108,7 @@ async function nested(mounted: Mounted, toolName: string, args: unknown) {
     return { logs: [], value: await tools.functions[toolName]!(args) }
   }
   return mounted.ctx.tools.execute({
-    callId: CallId('outer'),
+    callId: ToolCallId('outer'),
     name: RUN_CODE_NAME,
     arguments: { code: 'return null', description: 'test discovery' },
     agent: mounted.agent,
@@ -126,7 +126,7 @@ function valueOf(result: Awaited<ReturnType<typeof nested>>) {
 /** Execute one ordinary model tool call without the Code transport. */
 async function direct(mounted: Mounted, toolName: string, args: unknown) {
   return mounted.ctx.tools.execute({
-    callId: CallId('direct-' + toolName),
+    callId: ToolCallId('direct-' + toolName),
     name: toolName,
     arguments: args,
     agent: mounted.agent,
@@ -146,7 +146,7 @@ describe('dsh-progressive-tools', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SystemPrompt, {})
-    await ctx.plugin(ToolRuntime, { mode: 'code' })
+    await ctx.plugin(ToolRuntime, { mode: 'ptc' })
     await ctx.plugin(FakeRuntime)
     expect(() => { apply(ctx, { maxSearchResults: Number.NaN }) }).toThrow(/positive safe integer/)
     expect(() => { apply(ctx, { maxDescribeTools: 1.5 }) }).toThrow(/positive safe integer/)
@@ -249,7 +249,7 @@ describe('dsh-progressive-tools', () => {
     expect(unavailable).toMatchObject({ isError: true, error: { info: { code: 'UNKNOWN_TOOL' } } })
   })
   it('keeps Code and Both request prefixes stable across hidden catalog changes', async () => {
-    for (const mode of ['code', 'both'] as const) {
+    for (const mode of ['ptc', 'both'] as const) {
       const mounted = await mount({}, { mode })
       const before = await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent })
       const prefix = JSON.stringify({ sections: before.sections, tools: before.tools })
@@ -291,7 +291,7 @@ describe('dsh-progressive-tools', () => {
   it('requires codeRuntime only when a Code surface is actually assembled', async () => {
     const native = await mount({}, { mode: 'native', runtime: false })
     await expect(native.ctx.systemPrompt.assemble({ scope: native.agent })).resolves.toBeDefined()
-    const code = await mount({}, { mode: 'code', runtime: false })
+    const code = await mount({}, { mode: 'ptc', runtime: false })
     await expect(code.ctx.systemPrompt.assemble({ scope: code.agent })).rejects.toThrow(/requires (?:ctx\.codeRuntime|a code runtime)/)
   })
 
@@ -389,7 +389,7 @@ describe('dsh-progressive-tools', () => {
     const directDenied = await direct(mounted, 'web_search', { query: 'direct-code' })
     expect(directDenied).toMatchObject({ isError: true, error: { info: { code: 'UNKNOWN_TOOL' } } })
     const seen: string[] = []
-    const dispatchesBefore = mounted.agent.session.events.filter(event => event.type === 'tool/code-dispatch').length
+    const dispatchesBefore = mounted.agent.session.ownEvents().filter(event => event.type === 'tool/ptc-dispatch').length
     mounted.scope.ctx.on('tools/pre-execute', async (exec, next) => {
       seen.push(exec.name)
       return next()
@@ -400,7 +400,7 @@ describe('dsh-progressive-tools', () => {
       return { logs: [], value: await tools.functions.web_search!({ query: 'fresh' }) }
     }
     const result = await mounted.ctx.tools.execute({
-      callId: CallId('outer-hidden'),
+      callId: ToolCallId('outer-hidden'),
       name: RUN_CODE_NAME,
       arguments: { code: 'return tools.web_search({ query: "fresh" })', description: 'call discovered tool' },
       agent: mounted.agent,
@@ -408,7 +408,7 @@ describe('dsh-progressive-tools', () => {
     })
     expect(valueOf(result)).toEqual(['fresh'])
     expect(seen).toEqual([RUN_CODE_NAME, 'web_search'])
-    const dispatches = mounted.agent.session.events.filter(event => event.type === 'tool/code-dispatch')
+    const dispatches = mounted.agent.session.ownEvents().filter(event => event.type === 'tool/ptc-dispatch')
     expect(dispatches).toHaveLength(dispatchesBefore + 1)
     expect(dispatches.at(-1)?.data).toMatchObject({ name: 'web_search', arguments: { query: 'fresh' } })
   })
