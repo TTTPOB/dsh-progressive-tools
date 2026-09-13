@@ -15,8 +15,9 @@ import {
   renderToolsSdk,
   renderToolsSdkPy,
 } from '@deepseek-ai/dsh-tools'
-import type { JsonSchemaNode, JsonValue, ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import type { JsonSchemaNode, ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import { installNativeDeferredBridge } from './native-deferred.ts'
 
@@ -516,7 +517,7 @@ export function apply(ctx: Context, config: Config): void {
         throw new Error(`invoke_tool received unknown or unavailable tool ${JSON.stringify(args.name)}`)
       }
       const result = await ctx.tools.execute({
-        callId: CallId(`${String(exec.callId)}:invoke`),
+        callId: ToolCallId(`${String(exec.callId)}:invoke`),
         rootCallId: exec.rootCallId,
         name: args.name,
         arguments: args.arguments,

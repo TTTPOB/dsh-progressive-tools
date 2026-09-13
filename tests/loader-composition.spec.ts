@@ -11,7 +11,7 @@ import * as yaml from 'js-yaml'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
-import LlmRuntime, { CallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -65,19 +65,19 @@ const FixturePlugin = {
     }))
     await ctx.plugin(FixtureRuntime)
 
-    const mountMode = async (id: string, mode: 'native' | 'code' | 'both') => {
+    const mountMode = async (id: string, mode: 'native' | 'ptc' | 'both') => {
       const session = Session.create(SessionId(id))
       const agent = { id: session.id, session } as unknown as Agent
       const scoped = createScope(ctx, agent)
       scoped.ctx.tools.presentAs(mode)
       return { agent, assembly: await ctx.systemPrompt.assemble({ scope: agent }) }
     }
-    const code = await mountMode('loader-discovery-code', 'code')
+    const code = await mountMode('loader-discovery-code', 'ptc')
     const native = await mountMode('loader-discovery-native', 'native')
     const both = await mountMode('loader-discovery-both', 'both')
     const agent = code.agent
 
-    const runContext = (callId: CallId, toolName: string, args: unknown): ToolRunContext => ({
+    const runContext = (callId: ToolCallId, toolName: string, args: unknown): ToolRunContext => ({
       token: Symbol('fixture') as ToolExecutionToken,
       callId,
       rootCallId: callId,
@@ -95,8 +95,8 @@ const FixturePlugin = {
     state = {
       wire: assembly.tools.map(tool => tool.name),
       sdk: assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? '',
-      search: await search.execute({ query: '*' }, runContext(CallId('search'), Discovery.SEARCH_TOOLS_NAME, { query: '*' })),
-      hidden: await hidden.execute({ city: 'Paris' }, runContext(CallId('hidden'), 'fixture_weather', { city: 'Paris' })),
+      search: await search.execute({ query: '*' }, runContext(ToolCallId('search'), Discovery.SEARCH_TOOLS_NAME, { query: '*' })),
+      hidden: await hidden.execute({ city: 'Paris' }, runContext(ToolCallId('hidden'), 'fixture_weather', { city: 'Paris' })),
       hasRunCode: ctx.tools.get(RUN_CODE_NAME, agent) !== undefined,
       nativeWire: native.assembly.tools.map(tool => tool.name),
       bothWire: both.assembly.tools.map(tool => tool.name),
