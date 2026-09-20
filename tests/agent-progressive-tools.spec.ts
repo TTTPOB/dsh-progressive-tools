@@ -143,6 +143,7 @@ function directValue(result: Awaited<ReturnType<typeof direct>>) {
 describe('dsh-progressive-tools', () => {
   it('defaults to all tools and rejects an invalid disclosure selection', () => {
     expect(Config({}).deferTools).toBe('all')
+    expect(Config({}).maxDescribeTools).toBe(10)
     expect(Config({ deferTools: 'mcp' }).deferTools).toBe('mcp')
     expect(() => Config({ deferTools: 'invalid' as 'mcp' })).toThrow()
     expect(() => apply(new Context(), { deferTools: 'invalid' as 'mcp' })).toThrow(/deferTools/)
@@ -275,6 +276,33 @@ describe('dsh-progressive-tools', () => {
     const search = directValue(await direct(mounted, SEARCH_TOOLS_NAME, { query: 'web' })) as { matches: { name: string }[] }
     expect(search.matches.map(match => match.name)).toEqual(['web_search'])
     expect(directValue(await direct(mounted, 'web_search', { query: 'both' }))).toEqual(['both'])
+  })
+
+  it.each(['native', 'ptc', 'both'] as const)('shows configured discovery limits before calls in %s', async (mode) => {
+    const mounted = await mount({
+      maxSearchResults: 2,
+      maxDescribeTools: 4,
+      maxSummaryChars: 6,
+      maxQueryChars: 3,
+      maxToolNameChars: 5,
+      maxResultBytes: 512,
+    }, { mode })
+    const assembly = await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent })
+    const directSchemas = mode === 'ptc' ? '' : JSON.stringify(assembly.tools)
+    const sdk = mode === 'native'
+      ? ''
+      : assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    const visible = directSchemas + sdk
+
+    expect(visible).toContain('at most 2 matches')
+    expect(visible).toContain('Summaries are capped at 6 characters')
+    expect(visible).toContain('up to 3 characters')
+    expect(visible).toContain('capped at 2')
+    expect(visible).toContain('Describe 1-4 named tools per call')
+    expect(visible).toMatch(/[Ss]plit larger sets across (?:describe_tools )?calls/u)
+    expect(visible).toContain('result limit: 512 UTF-8 bytes')
+    expect(visible).toContain('Each name is at most 5 characters')
+    if (mode === 'native') expect(visible).toContain('at most 5 characters')
   })
 
   it('keeps the Native request prefix byte-stable across hidden catalog changes', async () => {

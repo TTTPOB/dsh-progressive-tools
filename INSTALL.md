@@ -30,14 +30,14 @@ Defaults require no profile edits. To override them, target the bundle-owned row
   config:
     eagerTools: []
     maxSearchResults: 10
-    maxDescribeTools: 5
+    maxDescribeTools: 10
     maxSummaryChars: 240
     maxQueryChars: 500
     maxToolNameChars: 200
     maxResultBytes: 1048576
 ```
 
-`eagerTools` names exact tools that remain declared directly on every affected model surface. Unknown names fail prompt assembly.
+`eagerTools` names exact tools that remain declared directly on every affected model surface. Unknown names fail prompt assembly. `maxDescribeTools` defaults to 10 and remains configurable; the generated tool schema tells the model to split larger selections across calls.
 
 ## 3. Verify
 

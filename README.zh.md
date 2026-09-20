@@ -13,14 +13,14 @@
   config:
     eagerTools: []
     maxSearchResults: 10
-    maxDescribeTools: 5
+    maxDescribeTools: 10
     maxSummaryChars: 240
     maxQueryChars: 500
     maxToolNameChars: 200
     maxResultBytes: 1048576
 ```
 
-上述配置块是 profile `cordis.patch.yml` 中的可选覆盖；bundle 已经拥有 `progressive-tools` 行。`eagerTools` 只应包含真正稳定、需要直接声明的精确工具名。未知 eager 名称会让 assembly 失败。条目数、字素数和结果 UTF-8 字节上限都会在成功返回前强制执行。
+上述配置块展示默认值，也是 profile `cordis.patch.yml` 中的可选覆盖；bundle 已经拥有 `progressive-tools` 行。`eagerTools` 只应包含真正稳定、需要直接声明的精确工具名。未知 eager 名称会让 assembly 失败。条目数、字素数和结果 UTF-8 字节上限都会在成功返回前强制执行。
 
 ## 仅延迟 MCP 工具
 
@@ -42,7 +42,7 @@
 ## 发现协议
 
 1. Native/Both 直接调用 `search_tools({})` 或 `search_tools({ query: "*" })`，Code 则把它作为 Code binding 调用，以列出完整轻量目录。与 Harness Skills 的“摘要优先”形态一致，每项只包含精确 `name` 与有界 `description`。文本查询只是可选的排序过滤器：各查询词独立匹配，不再要求全部命中；零命中时自动退回完整目录。需要时仍可显式传入 `limit` 缩小响应。
-2. 对准备使用的候选项调用 `describe_tools({ names })`。它返回完整描述和 canonical 输入/输出 schema；Code/Both 还会获得当前 runtime 的 SDK 片段。
+2. 对准备使用的候选项调用 `describe_tools({ names })`。每次调用接受 1 到 `maxDescribeTools` 个名称；更多名称应拆分为多次调用。它返回完整描述和 canonical 输入/输出 schema；Code/Both 还会获得当前 runtime 的 SDK 片段。
 3. 后续模型步骤中，原生支持的 API 使用该精确名称与参数发起普通工具调用。插件从持久化请求历史重建成功的 `describe_tools` 结果，并把 schema 注入对应 tool-result 位置。不支持该能力的 Native API 使用稳定的 `invoke_tool({ name, arguments })` 兜底。Code 在后续 `run_code` 中调用 `tools[exactName](arguments)`。
 4. 执行时 ToolRuntime 重新解析当前作用域目录。仍存在且可见的工具正常运行；已删除、受限、被遮蔽或拼错的名称返回当前失败原因。
 
@@ -63,7 +63,7 @@ Harness 请求对象保持冻结与只读。插件通过公开的 `llm/stream` w
 
 Use tools already declared in this interface or SDK directly; they do not require search_tools or describe_tools.
 For deferred tools, start with search_tools({}) or search_tools({ query: "*" }) when you need their complete lightweight catalog of names and summaries. A text query is only an optional ranking filter and falls back to that catalog when nothing matches.
-Call describe_tools with only the exact deferred tool names you intend to use.
+Call describe_tools with 1-10 exact deferred tool names per call; split larger sets across calls.
 describe_tools returns the exact input and output schemas; in Code Mode it also returns the active-runtime SDK excerpt.
 On a later model step, issue an ordinary tool call with the returned exact name and arguments.
 If the interface declares invoke_tool instead, pass it that exact name and arguments.

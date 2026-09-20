@@ -13,14 +13,14 @@ Follow [`INSTALL.md`](INSTALL.md) and install this standalone bundle into a dsh 
   config:
     eagerTools: []
     maxSearchResults: 10
-    maxDescribeTools: 5
+    maxDescribeTools: 10
     maxSummaryChars: 240
     maxQueryChars: 500
     maxToolNameChars: 200
     maxResultBytes: 1048576
 ```
 
-The configuration block above is an optional override in the profile's `cordis.patch.yml`; the bundle already owns the `progressive-tools` row. `eagerTools` contains exact, genuinely stable tools that remain declared directly. Unknown eager names fail assembly. Every count, grapheme, and rendered UTF-8 result limit is enforced before a successful discovery result returns.
+The configuration block above shows the defaults and is an optional override in the profile's `cordis.patch.yml`; the bundle already owns the `progressive-tools` row. `eagerTools` contains exact, genuinely stable tools that remain declared directly. Unknown eager names fail assembly. Every count, grapheme, and rendered UTF-8 result limit is enforced before a successful discovery result returns.
 
 ## MCP-only disclosure
 
@@ -42,7 +42,7 @@ The default `deferTools: all` preserves discovery for every tool outside `eagerT
 ## Discovery protocol
 
 1. Call `search_tools({})` or `search_tools({ query: "*" })` directly in Native/Both, or as a Code binding in Code mode, to list the complete lightweight catalog. Each entry contains only the exact `name` and a bounded `description`, matching Harness Skills' summary-first shape. A text query is an optional ranking filter: terms are matched independently instead of all being required, and a zero-match query falls back to the complete catalog. An explicit `limit` still narrows a response when desired.
-2. Call `describe_tools({ names })` for the candidates you intend to use. It returns their canonical input/output schemas and full descriptions; Code/Both also receives the active-runtime SDK excerpt.
+2. Call `describe_tools({ names })` for the candidates you intend to use. Each call accepts from 1 through `maxDescribeTools` names; split larger sets across calls. It returns their canonical input/output schemas and full descriptions; Code/Both also receives the active-runtime SDK excerpt.
 3. On a later model step, a natively capable API emits an ordinary tool call using that exact name and arguments. The plugin reconstructs successful `describe_tools` results from durable request history and injects their schemas at the matching tool-result position. A Native API without that capability calls the stable `invoke_tool({ name, arguments })` fallback. Code calls `tools[exactName](arguments)` from a later `run_code`.
 4. ToolRuntime resolves the current scoped registry at execution time. Existing visible tools run normally; removed, restricted, shadowed, or misspelled names return the current failure reason.
 
@@ -63,7 +63,7 @@ Harness request objects stay frozen and read-only. The plugin uses the public `l
 
 Use tools already declared in this interface or SDK directly; they do not require search_tools or describe_tools.
 For deferred tools, start with search_tools({}) or search_tools({ query: "*" }) when you need their complete lightweight catalog of names and summaries. A text query is only an optional ranking filter and falls back to that catalog when nothing matches.
-Call describe_tools with only the exact deferred tool names you intend to use.
+Call describe_tools with 1-10 exact deferred tool names per call; split larger sets across calls.
 describe_tools returns the exact input and output schemas; in Code Mode it also returns the active-runtime SDK excerpt.
 On a later model step, issue an ordinary tool call with the returned exact name and arguments.
 If the interface declares invoke_tool instead, pass it that exact name and arguments.

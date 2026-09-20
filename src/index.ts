@@ -54,7 +54,7 @@ const DEFAULTS = {
   deferTools: 'all',
   eagerTools: [] as string[],
   maxSearchResults: 10,
-  maxDescribeTools: 5,
+  maxDescribeTools: 10,
   maxSummaryChars: 240,
   maxQueryChars: 500,
   maxToolNameChars: 200,
@@ -373,10 +373,10 @@ export function apply(ctx: Context, config: Config): void {
 
   const searchTool = defineTool({
     name: SEARCH_TOOLS_NAME,
-    description: 'List or loosely search available deferred tools by lightweight name and description; schemas remain hidden until describe_tools.',
+    description: `List or search deferred tools by name and summary. Text searches and limited responses return at most ${String(resolved.maxSearchResults)} matches; full listings may be larger. Summaries are capped at ${String(resolved.maxSummaryChars)} characters.`,
     parameters: {
-      query: { type: 'string', description: 'Optional capability words ranked independently (OR), not all required; omit or use * for the complete lightweight catalog.' },
-      limit: { type: 'integer', description: 'Optional page size; explicit values are capped by plugin configuration.' },
+      query: { type: 'string', description: `Optional OR-ranked capability words, up to ${String(resolved.maxQueryChars)} characters; omit or use * to list all.` },
+      limit: { type: 'integer', description: `Optional positive page size; capped at ${String(resolved.maxSearchResults)}.` },
     },
     output: {
       schema: {
@@ -436,9 +436,9 @@ export function apply(ctx: Context, config: Config): void {
 
   const describeTool = defineTool({
     name: DESCRIBE_TOOLS_NAME,
-    description: 'Return exact schemas for named tools and, in Code or Both mode, the active-runtime SDK excerpt.',
+    description: `Describe 1-${String(resolved.maxDescribeTools)} named tools per call with exact schemas; Code/Both also return an SDK excerpt. Split larger sets across calls; result limit: ${String(resolved.maxResultBytes)} UTF-8 bytes.`,
     parameters: {
-      names: { type: 'array', required: true, items: { type: 'string' }, description: 'Exact tool names returned by the search_tools catalog or ranking.' },
+      names: { type: 'array', required: true, items: { type: 'string' }, description: `1-${String(resolved.maxDescribeTools)} exact search_tools names per call; split larger sets across describe_tools calls. Each name is at most ${String(resolved.maxToolNameChars)} characters.` },
     },
     output: {
       schema: {
@@ -516,7 +516,7 @@ export function apply(ctx: Context, config: Config): void {
     name: INVOKE_TOOL_NAME,
     description: 'Invoke one exact tool returned by describe_tools when the provider cannot load its schema as a standard tool call.',
     parameters: {
-      name: { type: 'string', required: true, description: 'Exact tool name returned by describe_tools.' },
+      name: { type: 'string', required: true, description: `Exact describe_tools name, at most ${String(resolved.maxToolNameChars)} characters.` },
       arguments: { type: 'json', required: true, description: 'Arguments matching that tool\'s exact input schema.' },
     },
     output: {
