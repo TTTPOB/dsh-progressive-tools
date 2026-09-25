@@ -13,7 +13,7 @@ export default {
     neverBundle: [
       '@deepseek-ai/schemastery',
       '@deepseek-ai/cordis',
-      '@deepseek-ai/dsh-code-runtime',
+      '@deepseek-ai/dsh-ptc-runtime',
       '@deepseek-ai/dsh-invariants',
       '@deepseek-ai/dsh-llm',
       '@deepseek-ai/dsh-scope',

@@ -11,8 +11,8 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
-import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
-import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcRunRequest, PtcRunResult } from '@deepseek-ai/dsh-ptc-runtime'
 import ToolRuntime, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -29,17 +29,17 @@ import {
 const signal = new AbortController().signal
 
 /** Scriptable runtime whose bridge functions are real ToolRuntime bindings. */
-class FakeRuntime extends CodeRuntime {
+class FakeRuntime extends PtcRuntime {
   readonly language: string
   readonly isolation = 'fake'
-  behavior: (request: CodeRunRequest) => Promise<CodeRunResult> = () => Promise.resolve({ logs: [] })
+  behavior: (request: PtcRunRequest) => Promise<PtcRunResult> = () => Promise.resolve({ logs: [] })
 
   constructor(ctx: Context, config: { language?: string } = {}) {
     super(ctx)
     this.language = config.language ?? 'typescript'
   }
 
-  run(request: CodeRunRequest): Promise<CodeRunResult> {
+  run(request: PtcRunRequest): Promise<PtcRunResult> {
     return this.behavior(request)
   }
 }
@@ -96,7 +96,7 @@ async function mount(config: Config = {}, options: { language?: string; mode?: '
   scope.ctx.tools.presentAs(options.mode ?? 'ptc')
   const row = scope.ctx.plugin({ name, inject: [...inject], Config, apply }, config)
   await row.await()
-  return { ctx, scope, agent, row, runtime: ctx.get('codeRuntime') as FakeRuntime | undefined }
+  return { ctx, scope, agent, row, runtime: ctx.get('ptcRuntime') as FakeRuntime | undefined }
 }
 
 /** Execute one discovery tool as a nested Code Mode call. */
@@ -241,7 +241,7 @@ describe('dsh-progressive-tools', () => {
     expect(assembly.tools.map(tool => tool.name).sort()).toEqual([DESCRIBE_TOOLS_NAME, INVOKE_TOOL_NAME, SEARCH_TOOLS_NAME].sort())
     expect(assembly.sections.find(section => section.name === 'tools:progressive-disclosure')?.text)
       .toContain('ordinary tool call')
-    expect(mounted.ctx.get('codeRuntime')).toBeUndefined()
+    expect(mounted.ctx.get('ptcRuntime')).toBeUndefined()
 
     const search = directValue(await direct(mounted, SEARCH_TOOLS_NAME, { query: 'web' })) as {
       matches: { name: string; description: string }[]
@@ -380,11 +380,11 @@ describe('dsh-progressive-tools', () => {
     expect(plain.tools.map(tool => tool.name)).toEqual(['read_file', 'web_search', 'write_file'])
   })
 
-  it('requires codeRuntime only when a Code surface is actually assembled', async () => {
+  it('requires ptcRuntime only when a Code surface is actually assembled', async () => {
     const native = await mount({}, { mode: 'native', runtime: false })
     await expect(native.ctx.systemPrompt.assemble({ scope: native.agent })).resolves.toBeDefined()
     const code = await mount({}, { mode: 'ptc', runtime: false })
-    await expect(code.ctx.systemPrompt.assemble({ scope: code.agent })).rejects.toThrow(/requires (?:ctx\.codeRuntime|a code runtime)/)
+    await expect(code.ctx.systemPrompt.assemble({ scope: code.agent })).rejects.toThrow(/requires (?:ctx\.ptcRuntime|a code runtime)/)
   })
 
   it('renders the compact SDK in the active runtime language', async () => {

@@ -6,7 +6,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type {} from '@deepseek-ai/dsh-code-runtime'
+import type {} from '@deepseek-ai/dsh-ptc-runtime'
 import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import {
@@ -255,9 +255,9 @@ function sdkSchema(definition: ToolDefinition): CatalogTool {
 
 /** Render the runtime's language while retaining the registry-owned SDK contract. */
 function renderSdk(ctx: Context, schemas: CatalogTool[]): { language: string; sdk: string } {
-  const runtime = ctx.get('codeRuntime')
+  const runtime = ctx.get('ptcRuntime')
   if (runtime === undefined) {
-    throw new Error('dsh-progressive-tools: Code or Both presentation requires ctx.codeRuntime')
+    throw new Error('dsh-progressive-tools: Code or Both presentation requires ctx.ptcRuntime')
   }
   switch (runtime.language) {
     case 'typescript': return { language: runtime.language, sdk: renderToolsSdk(schemas) }

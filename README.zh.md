@@ -6,7 +6,7 @@
 
 ## 安装与组装
 
-按照 [`INSTALL.md`](INSTALL.md) 把这个自包含 bundle 安装到 dsh profile。bundle patch 会在 host plane 挂载插件一次，再由 ToolRuntime 与 SystemPrompt 的作用域视图将它传递给所有已有和未来的 Agent preset。无需复制、编辑或选择额外 preset。插件固定依赖 `tools`、`systemPrompt` 与 `llm`；只有 Agent 实际呈现 Code Mode 时才需要 `codeRuntime`。它不会修改 Harness checkout。
+按照 [`INSTALL.md`](INSTALL.md) 把这个自包含 bundle 安装到 dsh profile。bundle patch 会在 host plane 挂载插件一次，再由 ToolRuntime 与 SystemPrompt 的作用域视图将它传递给所有已有和未来的 Agent preset。无需复制、编辑或选择额外 preset。插件固定依赖 `tools`、`systemPrompt` 与 `llm`；只有 Agent 实际呈现 Code Mode 时才需要 `ptcRuntime`。它不会修改 Harness checkout。
 
 ```yaml
 - id: progressive-tools

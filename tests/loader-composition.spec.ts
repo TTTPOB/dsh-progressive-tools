@@ -9,8 +9,8 @@ import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import * as yaml from 'js-yaml'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
-import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcRunRequest, PtcRunResult } from '@deepseek-ai/dsh-ptc-runtime'
 import LlmRuntime, { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -37,10 +37,10 @@ interface FixtureState {
 }
 let state: FixtureState | undefined
 
-class FixtureRuntime extends CodeRuntime {
+class FixtureRuntime extends PtcRuntime {
   readonly language = 'typescript'
   readonly isolation = 'fixture'
-  run(_request: CodeRunRequest): Promise<CodeRunResult> {
+  run(_request: PtcRunRequest): Promise<PtcRunResult> {
     return Promise.resolve({ logs: [] })
   }
 }
