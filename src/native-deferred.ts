@@ -120,15 +120,15 @@ function disclosureFrame(
     const callId = String(message.toolCallId)
     if (callNames.get(callId) !== describeToolName) continue
     try {
-        const parsed: unknown = JSON.parse(resultText(message.content))
-        if (typeof parsed !== 'object' || parsed === null) continue
-        const tools = (parsed as Record<string, unknown>)['tools']
-        if (!Array.isArray(tools) || !tools.every(isToolSchema)) continue
-        loads.set(callId, tools.map(tool => ({
-          name: tool.name,
-          description: tool.description,
-          parameters: structuredClone(tool.parameters),
-        })))
+      const parsed: unknown = JSON.parse(resultText(message.content))
+      if (typeof parsed !== 'object' || parsed === null) continue
+      const tools = (parsed as Record<string, unknown>)['tools']
+      if (!Array.isArray(tools) || !tools.every(isToolSchema)) continue
+      loads.set(callId, tools.map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: structuredClone(tool.parameters),
+      })))
     } catch {
       // A rewritten/spilled/non-JSON presentation cannot authorize schemas.
     }

@@ -62,7 +62,7 @@ const DEFAULTS = {
 } as const
 
 /** Validated Loader schema for Config. */
-export const Config = z.object({
+export const Config: z<Config> = z.object({
   deferTools: z.union(['all', 'mcp']).default(DEFAULTS.deferTools),
   eagerTools: z.array(z.string()).default([]),
   maxSearchResults: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULTS.maxSearchResults),

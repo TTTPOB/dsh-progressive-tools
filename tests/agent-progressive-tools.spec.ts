@@ -491,7 +491,7 @@ describe('dsh-progressive-tools', () => {
       return next()
     })
     if (mounted.runtime === undefined) throw new Error('nested Code Mode test requires a runtime')
-  mounted.runtime.behavior = async (request) => {
+    mounted.runtime.behavior = async (request) => {
       const tools = request.bindings.find(binding => binding.global === 'tools')!
       return { logs: [], value: await tools.functions.web_search!({ query: 'fresh' }) }
     }
