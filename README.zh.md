@@ -6,7 +6,7 @@
 
 ## 安装与组装
 
-按照 [`INSTALL.md`](INSTALL.md) 将此包与官方 DSH 0.1.7-rc.2 组合。可由自带 bundle patch 或 Web 组合包中的直接插件行在 host plane 挂载一次，再由 ToolRuntime 与 SystemPrompt 的作用域视图将它传递给所有已有和未来的 Agent preset。无需复制、编辑或选择额外 preset。插件固定依赖 `tools`、`systemPrompt` 与 `llm`；只有 Agent 实际呈现 Code Mode 时才需要 `ptcRuntime`。它不会修改 Harness checkout。
+按照 [`INSTALL.md`](INSTALL.md) 将此包与官方 DSH 0.1.7-rc.2 组合。通过正常 profile dependencies 安装（`autoInstallPeers: false`），并由 `$DSH_HOME/cordis.patch.yml` 的共用插件行在 host plane 挂载一次，再由 ToolRuntime 与 SystemPrompt 的作用域视图将它传递给所有已有和未来的 Agent preset。无需复制、编辑或选择额外 preset。插件固定依赖 `tools`、`systemPrompt` 与 `llm`；只有 Agent 实际呈现 Code Mode 时才需要 `ptcRuntime`。它不会修改 Harness checkout。
 
 ```yaml
 - id: progressive-tools
@@ -20,7 +20,7 @@
     maxResultBytes: 1048576
 ```
 
-上述配置块展示默认值，也是 profile `cordis.patch.yml` 中的可选覆盖；bundle 已经拥有 `progressive-tools` 行。`eagerTools` 只应包含真正稳定、需要直接声明的精确工具名。未知 eager 名称会让 assembly 失败。条目数、字素数和结果 UTF-8 字节上限都会在成功返回前强制执行。
+上述配置块展示默认值，也可覆盖 `$DSH_HOME/cordis.patch.yml` 中的共用行；不要同时激活自带 bundle patch，以免重复插入。`eagerTools` 只应包含真正稳定、需要直接声明的精确工具名。未知 eager 名称会让 assembly 失败。条目数、字素数和结果 UTF-8 字节上限都会在成功返回前强制执行。
 
 ## 仅延迟 MCP 工具
 

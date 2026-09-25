@@ -6,7 +6,7 @@ An automatically mounted, presentation-only progressive tool disclosure layer fo
 
 ## Installation and composition
 
-Follow [`INSTALL.md`](INSTALL.md) to install this package with official DSH 0.1.7-rc.2. Its bundle patch, or a direct row in a composing Web bundle, mounts the plugin once on the host plane, whose scoped ToolRuntime and SystemPrompt views carry it into every existing and future Agent preset. No preset copy, preset edit, or preset selection is required. The plugin requires `tools`, `systemPrompt`, and `llm`; `ptcRuntime` is required only when an agent actually presents Code Mode. It never patches the Harness checkout.
+Follow [`INSTALL.md`](INSTALL.md) to install this package with official DSH 0.1.7-rc.2. An ordinary profile dependency (`autoInstallPeers: false`) and one row in `$DSH_HOME/cordis.patch.yml` mount the plugin once on the host plane, whose scoped ToolRuntime and SystemPrompt views carry it into every existing and future Agent preset. No preset copy, preset edit, or preset selection is required. The plugin requires `tools`, `systemPrompt`, and `llm`; `ptcRuntime` is required only when an agent actually presents Code Mode. It never patches the Harness checkout.
 
 ```yaml
 - id: progressive-tools
@@ -20,7 +20,7 @@ Follow [`INSTALL.md`](INSTALL.md) to install this package with official DSH 0.1.
     maxResultBytes: 1048576
 ```
 
-The configuration block above shows the defaults and is an optional override in the profile's `cordis.patch.yml`; the bundle already owns the `progressive-tools` row. `eagerTools` contains exact, genuinely stable tools that remain declared directly. Unknown eager names fail assembly. Every count, grapheme, and rendered UTF-8 result limit is enforced before a successful discovery result returns.
+The configuration block above shows the defaults and is an optional override of the shared row in `$DSH_HOME/cordis.patch.yml`; do not activate the package bundle alongside that row. `eagerTools` contains exact, genuinely stable tools that remain declared directly. Unknown eager names fail assembly. Every count, grapheme, and rendered UTF-8 result limit is enforced before a successful discovery result returns.
 
 ## MCP-only disclosure
 
