@@ -6,7 +6,7 @@ An automatically mounted, presentation-only progressive tool disclosure layer fo
 
 ## Installation and composition
 
-Follow [`INSTALL.md`](INSTALL.md) and install this standalone bundle into a dsh profile. Its bundle patch mounts the plugin once on the host plane, whose scoped ToolRuntime and SystemPrompt views carry it into every existing and future Agent preset. No preset copy, preset edit, or preset selection is required. The plugin requires `tools`, `systemPrompt`, and `llm`; `ptcRuntime` is required only when an agent actually presents Code Mode. It never patches the Harness checkout.
+Follow [`INSTALL.md`](INSTALL.md) to install this package with official DSH 0.1.7-rc.2. Its bundle patch, or a direct row in a composing Web bundle, mounts the plugin once on the host plane, whose scoped ToolRuntime and SystemPrompt views carry it into every existing and future Agent preset. No preset copy, preset edit, or preset selection is required. The plugin requires `tools`, `systemPrompt`, and `llm`; `ptcRuntime` is required only when an agent actually presents Code Mode. It never patches the Harness checkout.
 
 ```yaml
 - id: progressive-tools

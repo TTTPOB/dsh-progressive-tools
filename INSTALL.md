@@ -1,33 +1,29 @@
-# Installation runbook
+# Installation
 
-This is a standalone DeepSeek Harness bundle. Installing it into a profile activates progressive tool disclosure for every Agent preset in that profile. It does not patch the Harness checkout or create, copy, edit, or select an Agent preset.
+This package targets official DeepSeek Harness 0.1.7-rc.2. It mounts progressive tool disclosure once on the host plane for every Agent preset; it does not replace the PTC runtime or patch Harness source.
 
-## 1. Install the bundle into a profile
+## Compose in a Web bundle
 
-For the published package and default Web profile:
+Declare `dsh-progressive-tools@0.3.0` as a direct dependency of the Web bundle that owns the composition. Insert its plugin row in that bundle's patch:
 
-```sh
-dsh plugin --profile web add dsh-progressive-tools
+```yaml
+- insert:
+    - id: progressive-tools
+      name: dsh-progressive-tools
 ```
 
-For a local checkout:
+Resolve `@deepseek-ai/dsh-ptc-runtime` from the matching official DSH installation. The plugin requires `tools`, `systemPrompt`, and `llm`; `ctx.ptcRuntime` is required only when presenting PTC/Code or Both mode. Do not also install this package as an active bundle in the same composition: its own `cordis.patch.yml` would insert a duplicate row.
 
-```sh
-cd E:/source/ai/dsh/progressive-tools
-pnpm install
-npm run check
-dsh plugin --profile web add link:E:/source/ai/dsh/progressive-tools
-```
+Alternatively, install this standalone bundle with `dsh plugin --profile web add dsh-progressive-tools@0.3.0`; its own bundle patch contributes the row. Use this route only if the Web bundle does not already declare the plugin.
 
-The package's `cordis.patch.yml` inserts one host-plane `progressive-tools` row. Scoped ToolRuntime and SystemPrompt views apply that row to Native, Code, and Both agents regardless of which preset they use. Removing the package removes the row.
+## Optional configuration
 
-## 2. Optional configuration
-
-Defaults require no profile edits. To override them, target the bundle-owned row from the profile's `cordis.patch.yml`:
+The defaults require no edits. To override the row from a profile patch, or set the same config on the composing bundle's row:
 
 ```yaml
 - id: progressive-tools
   config:
+    deferTools: all
     eagerTools: []
     maxSearchResults: 10
     maxDescribeTools: 10
@@ -37,14 +33,8 @@ Defaults require no profile edits. To override them, target the bundle-owned row
     maxResultBytes: 1048576
 ```
 
-`eagerTools` names exact tools that remain declared directly on every affected model surface. Unknown names fail prompt assembly. `maxDescribeTools` defaults to 10 and remains configurable; the generated tool schema tells the model to split larger selections across calls.
+Set `deferTools: mcp` to defer only MCP tools. Patches replace the entire config; include every option that should remain explicit. Unknown eager names fail assembly.
 
-## 3. Verify
+## Verify
 
-Start a new session with any Agent preset. Native always exposes `search_tools` and `describe_tools`; APIs without native deferred loading also expose `invoke_tool`, while capable pi-ai Responses/Anthropic models receive disclosed schemas at the describe-result position. Code keeps only `run_code` on the wire and exposes discovery bindings in its compact SDK; Both exposes the stable transports for both paths and does not need `invoke_tool`.
-
-To uninstall:
-
-```sh
-dsh plugin --profile web remove dsh-progressive-tools
-```
+Inspect the composed configuration for exactly one `progressive-tools` row and verify its module resolves from the Web bundle's dependency tree. In a new session, Native exposes `search_tools` and `describe_tools` plus `invoke_tool` on APIs without native deferred loading. PTC/Code keeps `run_code` on the wire; Both presents both paths. Native schema loading at the historical describe result still requires an adapter using pi-ai `Models.streamSimple` with accurate capability flags; otherwise retain the stable `invoke_tool` fallback.
