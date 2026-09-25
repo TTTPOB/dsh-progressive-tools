@@ -87,7 +87,7 @@ function supportsDeferredTools(model: PiModel): boolean {
 function resultText(content: readonly ContentBlock[]): string {
   return content.map(block => block.type === 'text'
     ? block.text
-    : block.type === 'tool-result' ? resultText(block.content) : '').join('')
+    : '').join('')
 }
 
 function isToolSchema(value: unknown): value is ToolSchema {
@@ -116,12 +116,11 @@ function disclosureFrame(
       }
       continue
     }
-    for (const block of message.content) {
-      if (block.type !== 'tool-result' || block.isError === true) continue
-      const callId = String(block.toolCallId)
-      if (callNames.get(callId) !== describeToolName) continue
-      try {
-        const parsed: unknown = JSON.parse(resultText(block.content))
+    if (message.role !== 'tool' || message.isError === true) continue
+    const callId = String(message.toolCallId)
+    if (callNames.get(callId) !== describeToolName) continue
+    try {
+        const parsed: unknown = JSON.parse(resultText(message.content))
         if (typeof parsed !== 'object' || parsed === null) continue
         const tools = (parsed as Record<string, unknown>)['tools']
         if (!Array.isArray(tools) || !tools.every(isToolSchema)) continue
@@ -130,9 +129,8 @@ function disclosureFrame(
           description: tool.description,
           parameters: structuredClone(tool.parameters),
         })))
-      } catch {
-        // A rewritten/spilled/non-JSON presentation cannot authorize schemas.
-      }
+    } catch {
+      // A rewritten/spilled/non-JSON presentation cannot authorize schemas.
     }
   }
   return {

@@ -39,6 +39,10 @@ class FakeRuntime extends PtcRuntime {
     this.language = config.language ?? 'typescript'
   }
 
+  resolve(request: PtcRunRequest) {
+    return { ...request, cwd: request.cwd ?? process.cwd(), timeoutMs: request.timeoutMs ?? 30_000 }
+  }
+
   run(request: PtcRunRequest): Promise<PtcRunResult> {
     return this.behavior(request)
   }
@@ -384,7 +388,7 @@ describe('dsh-progressive-tools', () => {
     const native = await mount({}, { mode: 'native', runtime: false })
     await expect(native.ctx.systemPrompt.assemble({ scope: native.agent })).resolves.toBeDefined()
     const code = await mount({}, { mode: 'ptc', runtime: false })
-    await expect(code.ctx.systemPrompt.assemble({ scope: code.agent })).rejects.toThrow(/requires (?:ctx\.ptcRuntime|a code runtime)/)
+    await expect(code.ctx.systemPrompt.assemble({ scope: code.agent })).rejects.toThrow(/requires a PTC runtime/)
   })
 
   it('renders the compact SDK in the active runtime language', async () => {

@@ -46,14 +46,12 @@ class FixtureAdapter extends LlmAdapter {
         }
         continue
       }
-      for (const block of message.content) {
-        if (block.type !== 'tool-result') continue
-        messages.push({
-          role: 'toolResult',
-          toolCallId: String(block.toolCallId),
-          toolName: callNames.get(String(block.toolCallId)) ?? 'unknown',
-        })
-      }
+      if (message.role !== 'tool') continue
+      messages.push({
+        role: 'toolResult',
+        toolCallId: String(message.toolCallId),
+        toolName: callNames.get(String(message.toolCallId)) ?? 'unknown',
+      })
     }
     return this.models.streamSimple(this.model, {
       messages,
@@ -87,12 +85,10 @@ function request(tools = discoveryTools): GenerateOptions {
       },
       {
         id: 'result' as never,
-        role: 'user',
+        role: 'tool',
         source: { kind: 'tool', callId: ToolCallId('describe-call') },
+        toolCallId: ToolCallId('describe-call'),
         content: [{
-          type: 'tool-result',
-          toolCallId: ToolCallId('describe-call'),
-          content: [{
             type: 'text',
             text: JSON.stringify({
               tools: [{
@@ -103,8 +99,7 @@ function request(tools = discoveryTools): GenerateOptions {
               }],
             }),
           }],
-          isError: false,
-        }],
+        isError: false,
       },
     ],
   }

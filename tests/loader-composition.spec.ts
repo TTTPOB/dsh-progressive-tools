@@ -40,6 +40,9 @@ let state: FixtureState | undefined
 class FixtureRuntime extends PtcRuntime {
   readonly language = 'typescript'
   readonly isolation = 'fixture'
+  resolve(request: PtcRunRequest) {
+    return { ...request, cwd: request.cwd ?? process.cwd(), timeoutMs: request.timeoutMs ?? 30_000 }
+  }
   run(_request: PtcRunRequest): Promise<PtcRunResult> {
     return Promise.resolve({ logs: [] })
   }
