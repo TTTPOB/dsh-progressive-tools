@@ -41,7 +41,7 @@ writeFileSync(join(destination, 'SHA256SUMS'), `${digest}  ${filename}\n`)
 writeFileSync(join(destination, 'release-notes.md'), [
   `Prebuilt ${pkg.name} ${pkg.version}.`,
   '',
-  'Validated against DSH service packages 0.1.5-rc.2 and Cordis 4.0.2.',
+  'Validated against official DSH service packages 0.1.7-rc.2 and Cordis 4.0.4.',
   '',
   'Install as an ordinary dependency of the resolving profile (autoInstallPeers: false). Declare the shared progressive-tools row in $DSH_HOME/cordis.patch.yml.',
   '',

@@ -4,6 +4,11 @@
 
 面向 DeepSeek Harness Native、Code 与 Both 模式中所有 Agent preset 的自动挂载、渐进式工具披露层。它只改变呈现层：即使实时 ToolRuntime 目录注册、注销、限制或遮蔽非 eager 工具，模型可见的工具前缀仍保持稳定。
 
+
+## 发布验证
+
+本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用官方 DSH `0.1.7-rc.2`；本包不消费 Pi adapter，也不需要外部 fork。`pnpm release:pack && pnpm verify:consumer` 检查 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，profile 只安装插件并关闭自动 peers；不启动 Host。
+
 ## 安装与组装
 
 按照 [`INSTALL.md`](INSTALL.md) 将此包与官方 DSH 0.1.7-rc.2 组合。通过正常 profile dependencies 安装（`autoInstallPeers: false`），并由 `$DSH_HOME/cordis.patch.yml` 的共用插件行在 host plane 挂载一次，再由 ToolRuntime 与 SystemPrompt 的作用域视图将它传递给所有已有和未来的 Agent preset。无需复制、编辑或选择额外 preset。插件固定依赖 `tools`、`systemPrompt` 与 `llm`；只有 Agent 实际呈现 Code Mode 时才需要 `ptcRuntime`。它不会修改 Harness checkout。

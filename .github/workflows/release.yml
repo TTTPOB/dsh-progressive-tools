@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: '24'
       - uses: pnpm/action-setup@v6
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm prepare:release
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
@@ -29,6 +29,7 @@ jobs:
       - run: pnpm publint
       - run: pnpm verify:package
       - run: pnpm release:pack
+      - run: pnpm verify:consumer
       - uses: actions/upload-artifact@v7
         with:
           name: release

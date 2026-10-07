@@ -28,7 +28,10 @@
     "release:pack": "node scripts/release-pack.mjs",
     "verify:package": "node scripts/verify-package.mjs",
     "check": "tsc -p tsconfig.json && tsdown && vitest run && npm run test:built && npm run verify:package",
-    "prepublishOnly": "npm run check"
+    "prepublishOnly": "npm run check",
+    "prepare:release": "node .github/scripts/prepare-dependencies.mjs",
+    "verify:dependencies": "node .github/scripts/verify-dependencies.mjs",
+    "verify:consumer": "node .github/scripts/verify-consumer.mjs"
   },
   "exports": {
     ".": {
@@ -91,7 +94,8 @@
     "publint": "^0.3.18",
     "tsdown": "^0.22.2",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@deepseek-ai/dsh-app-boot": "0.1.7-rc.2"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-ptc-runtime": {

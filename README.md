@@ -4,6 +4,11 @@ English | [中文](README.zh.md)
 
 An automatically mounted, presentation-only progressive tool disclosure layer for every DeepSeek Harness Agent preset in Native, Code, and Both modes. It keeps the model-visible tool prefix stable while the live ToolRuntime catalog may register, unregister, restrict, or shadow non-eager tools.
 
+
+## Release validation
+
+Use `pnpm prepare:release` followed by the existing validation steps in [Validate and release](.github/workflows/release.yml). The source tests use official DSH `0.1.7-rc.2`; this package does not consume a Pi adapter or need an external fork. `pnpm release:pack && pnpm verify:consumer` checks the packed exports and real Loader activation through the official Host package resolver, with profile-local plugins and Host-shared peers (`autoInstallPeers: false`). The fixture does not launch a Host.
+
 ## Installation and composition
 
 Follow [`INSTALL.md`](INSTALL.md) to install this package with official DSH 0.1.7-rc.2. An ordinary profile dependency (`autoInstallPeers: false`) and one row in `$DSH_HOME/cordis.patch.yml` mount the plugin once on the host plane, whose scoped ToolRuntime and SystemPrompt views carry it into every existing and future Agent preset. No preset copy, preset edit, or preset selection is required. The plugin requires `tools`, `systemPrompt`, and `llm`; `ptcRuntime` is required only when an agent actually presents Code Mode. It never patches the Harness checkout.
