@@ -31,4 +31,4 @@
 pnpm check
 ```
 
-`pnpm check` = typecheck + tsdown + vitest + `test:built`（`DSH_EXAMPLE_MODE=lib` 跑 loader-composition）+ `verify:package`。`pnpm verify:consumer` 检查 tarball exports、正式解析器下的共享 peers 与真实 Loader 激活，不启动 Host。
+`pnpm check` = typecheck + tsdown + vitest + `test:built`（`DSH_EXAMPLE_MODE=lib` 跑 loader-composition）+ `verify:package`。`pnpm verify:consumer` 检查 tarball exports 与真实 Loader 激活，不启动 Host。
