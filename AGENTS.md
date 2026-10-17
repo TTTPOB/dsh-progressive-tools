@@ -1,6 +1,6 @@
 # dsh-progressive-tools 开发约定
 
-面向 DeepSeek Harness Native／Code／Both 模式所有 Agent preset 的渐进式工具披露层。**只改变呈现层**：即使 ToolRuntime 实时注册、注销、限制或遮蔽非 eager 工具，模型可见的工具前缀仍保持稳定。
+面向 DeepSeek Harness Native／PTC（Code）模式所有 Agent preset 的渐进式工具披露层。**只改变呈现层**：即使 ToolRuntime 实时注册、注销、限制或遮蔽非 eager 工具，模型可见的工具前缀仍保持稳定。
 
 ## 挂载与配置
 
@@ -19,8 +19,8 @@
 
 ## 已知限制
 
-- Native bridge 按特征探测 pi-ai 内部对象（DSH 提供只读 stream waterfall，但没有 adapter context-transform hook）。内部形态变化时退化为稳定 `invoke_tool`；Both 仍有 `run_code`。
-- Native 能力元数据必须准确：OpenAI Responses 用 `compat.supportsToolSearch`，Anthropic 用 `supportsToolReferences` 或 pi-ai 第一方模型规则。错误宣称能力的 gateway 可能拒绝注入协议。
+- Native bridge 按特征探测 pi-ai 内部对象（DSH 提供只读 stream waterfall，但没有 adapter context-transform hook）。内部形态变化时退化为稳定 `invoke_tool`；PTC 仍有 `run_code`。
+- Native 能力元数据必须准确：模型必须启用 `compat.supportsMidConvoSystemMessages`；Responses 还需 `supportsToolSearch` 或 `supportsAdditionalTools`，其他 API 需 `supportsMidConvoToolAdditions`。错误宣称能力的 gateway 可能拒绝注入协议。
 - 不过滤独立 `tool:*` guidance：其他插件动态改变单独指引文本时，system prefix 仍可能变化。
 - 完整提示仍是最终权威——Harness 在 assembly waterfall 之后恢复 complete prompt，无法向其注入发现指引。
 - 搜索是宽松、确定性的**词法排序，不是语义检索**；零词法候选时返回完整轻量目录，不留空结果死路。

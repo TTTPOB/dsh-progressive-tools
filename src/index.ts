@@ -1,5 +1,5 @@
 /**
- * Direct-first progressive tool disclosure for Native, Code, and Both modes:
+ * Direct-first progressive tool disclosure for Native and PTC modes:
  * keep the model-visible prefix stable while scoped ToolRuntime stays live.
  * @module dsh-progressive-tools
  */
@@ -75,7 +75,7 @@ export const Config: z<Config> = z.object({
 
 /** Cordis plugin name. */
 export const name = 'agent-progressive-tools'
-/** Always-required services; Code runtime is resolved only for Code/Both assembly. */
+/** Always-required services; PTC runtime is resolved only for PTC assembly. */
 export const inject = ['tools', 'systemPrompt', 'llm']
 
 interface ResolvedConfig {
@@ -94,7 +94,7 @@ interface CatalogTool extends ToolSchema {
   output: JsonSchemaNode
 }
 
-type PresentationMode = 'native' | 'code' | 'both'
+type PresentationMode = 'native' | 'ptc'
 
 interface SearchMatch {
   name: string
@@ -257,10 +257,10 @@ function sdkSchema(definition: ToolDefinition): CatalogTool {
 function renderSdk(ctx: Context, schemas: CatalogTool[]): { language: string; sdk: string } {
   const runtime = ctx.get('ptcRuntime')
   if (runtime === undefined) {
-    throw new Error('dsh-progressive-tools: Code or Both presentation requires ctx.ptcRuntime')
+    throw new Error('dsh-progressive-tools: PTC presentation requires ctx.ptcRuntime')
   }
   switch (runtime.language) {
-    case 'typescript': return { language: runtime.language, sdk: renderToolsSdk(schemas) }
+    case 'typescript': return { language: runtime.language, sdk: renderToolsSdk(schemas, runtime.programFormat) }
     case 'python': return { language: runtime.language, sdk: renderToolsSdkPy(schemas) }
     default: {
       throw new Error('dsh-progressive-tools: unsupported code runtime language '
@@ -272,11 +272,9 @@ function renderSdk(ctx: Context, schemas: CatalogTool[]): { language: string; sd
 const DISCOVERY_SECTION = 'tools:progressive-disclosure'
 
 function discoveryInstructions(mode: PresentationMode): string {
-  const invocation = mode === 'code'
+  const invocation = mode === 'ptc'
     ? 'In a later run_code call the returned exact name as tools[exactName](arguments).'
-    : mode === 'native'
-      ? 'On a later model step, issue an ordinary tool call using the returned exact name and arguments. If this interface declares invoke_tool instead, call invoke_tool with that exact name and arguments.'
-      : 'On a later model step, either issue an ordinary tool call using the returned exact name and arguments or call it from run_code as tools[exactName](arguments).'
+    : 'On a later model step, issue an ordinary tool call using the returned exact name and arguments. If this interface declares invoke_tool instead, call invoke_tool with that exact name and arguments.'
   return [
     '## Progressive tool disclosure',
     '',
@@ -291,7 +289,7 @@ function discoveryInstructions(mode: PresentationMode): string {
   ].join('\n')
 }
 
-/** Stabilize the model-visible wire surface for Native, Code, and Both modes. */
+/** Stabilize the model-visible wire surface for Native and PTC modes. */
 function compactAssembly(
   ctx: Context,
   assembly: PromptAssembly,
@@ -304,9 +302,7 @@ function compactAssembly(
   const sdkIndex = assembly.sections.findIndex(section => section.name === 'tools:sdk' && section.text.trim().length > 0)
   const hasSdk = sdkIndex !== -1
   const hasRunCode = assembly.tools.some(tool => tool.name === RUN_CODE_NAME)
-  const mode: PresentationMode = hasSdk
-    ? assembly.tools.some(tool => tool.name !== RUN_CODE_NAME) ? 'both' : 'code'
-    : 'native'
+  const mode: PresentationMode = hasSdk ? 'ptc' : 'native'
   if (mode !== 'native' && !hasRunCode) {
     throw new Error('dsh-progressive-tools: Code presentation SDK exists without the run_code wire transport')
   }
@@ -342,7 +338,7 @@ function compactAssembly(
   }
 
   const directNames = new Set<string>()
-  if (mode !== 'code') {
+  if (mode === 'native') {
     for (const definition of discoveryDefinitions) directNames.add(definition.name)
     for (const eagerName of eagerTools) directNames.add(eagerName)
   }
@@ -369,7 +365,7 @@ export function apply(ctx: Context, config: Config): void {
   const omitted = new Set([...DISCOVERY_NAMES, ...resolved.eagerTools])
   const presentationModes = new WeakMap<object, PresentationMode>()
   const modeFor = (agent: object | undefined, nested: boolean): PresentationMode =>
-    agent === undefined ? nested ? 'code' : 'native' : presentationModes.get(agent) ?? (nested ? 'code' : 'native')
+    agent === undefined ? nested ? 'ptc' : 'native' : presentationModes.get(agent) ?? (nested ? 'ptc' : 'native')
 
   const searchTool = defineTool({
     name: SEARCH_TOOLS_NAME,
@@ -436,7 +432,7 @@ export function apply(ctx: Context, config: Config): void {
 
   const describeTool = defineTool({
     name: DESCRIBE_TOOLS_NAME,
-    description: `Describe 1-${String(resolved.maxDescribeTools)} named tools per call with exact schemas; Code/Both also return an SDK excerpt. Split larger sets across calls; result limit: ${String(resolved.maxResultBytes)} UTF-8 bytes.`,
+    description: `Describe 1-${String(resolved.maxDescribeTools)} named tools per call with exact schemas; PTC also returns an SDK excerpt. Split larger sets across calls; result limit: ${String(resolved.maxResultBytes)} UTF-8 bytes.`,
     parameters: {
       names: { type: 'array', required: true, items: { type: 'string' }, description: `1-${String(resolved.maxDescribeTools)} exact search_tools names per call; split larger sets across describe_tools calls. Each name is at most ${String(resolved.maxToolNameChars)} characters.` },
     },

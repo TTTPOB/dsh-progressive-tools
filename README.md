@@ -2,16 +2,16 @@
 
 English | [中文](README.zh.md)
 
-An automatically mounted, presentation-only progressive tool disclosure layer for every DeepSeek Harness Agent preset in Native, Code, and Both modes. It keeps the model-visible tool prefix stable while the live ToolRuntime catalog may register, unregister, restrict, or shadow non-eager tools.
+An automatically mounted, presentation-only progressive tool disclosure layer for every DeepSeek Harness Agent preset in Native and PTC (Code) modes. It keeps the model-visible tool prefix stable while the live ToolRuntime catalog may register, unregister, restrict, or shadow non-eager tools.
 
 
 ## Release validation
 
-Use `pnpm prepare:release` followed by the existing validation steps in [Validate and release](.github/workflows/release.yml). The source tests use official DSH `0.1.7-rc.2`; this package does not consume a Pi adapter or need an external fork. `pnpm release:pack && pnpm verify:consumer` checks the packed exports and real Loader activation through the official Host package resolver, with profile-local plugins and Host-shared peers (`autoInstallPeers: false`). The fixture does not launch a Host.
+Use `pnpm prepare:release` followed by the existing validation steps in [Validate and release](.github/workflows/release.yml). The source tests use official DSH `0.2.1-rc.1`; the native protocol tests also use pi-ai `1.1.0` transcript replay. No external fork is required for this package's tests. `pnpm release:pack && pnpm verify:consumer` checks the packed exports and real Loader activation through the official Host package resolver, with profile-local plugins and Host-shared peers (`autoInstallPeers: false`). The fixture does not launch a Host.
 
 ## Installation and composition
 
-Follow [`INSTALL.md`](INSTALL.md) to install this package with official DSH 0.1.7-rc.2. An ordinary profile dependency (`autoInstallPeers: false`) and one row in `$DSH_HOME/cordis.patch.yml` mount the plugin once on the host plane, whose scoped ToolRuntime and SystemPrompt views carry it into every existing and future Agent preset. No preset copy, preset edit, or preset selection is required. The plugin requires `tools`, `systemPrompt`, and `llm`; `ptcRuntime` is required only when an agent actually presents Code Mode. It never patches the Harness checkout.
+Follow [`INSTALL.md`](INSTALL.md) to install this package with official DSH 0.2.1-rc.1. An ordinary profile dependency (`autoInstallPeers: false`) and one row in `$DSH_HOME/cordis.patch.yml` mount the plugin once on the host plane, whose scoped ToolRuntime and SystemPrompt views carry it into every existing and future Agent preset. No preset copy, preset edit, or preset selection is required. The plugin requires `tools`, `systemPrompt`, and `llm`; `ptcRuntime` is required only when an agent actually presents Code Mode. It never patches the Harness checkout.
 
 ```yaml
 - id: progressive-tools
@@ -29,7 +29,7 @@ The configuration block above shows the defaults and is an optional override of 
 
 ## MCP-only disclosure
 
-Set `deferTools: mcp` in the configuration block above to defer only tools named `mcp__<server>__<tool>`, the namespace used by DSH's MCP client. All other visible tools are declared immediately in Native/Both and in the Code SDK, including tools registered after the first assembly. `eagerTools` can additionally expose selected MCP tools. Search, describe, and fallback invocation cover only deferred tools; already declared tools can be called directly without discovery.
+Set `deferTools: mcp` in the configuration block above to defer only tools named `mcp__<server>__<tool>`, the namespace used by DSH's MCP client. All other visible tools are declared immediately in Native and in the Code SDK, including tools registered after the first assembly. `eagerTools` can additionally expose selected MCP tools. Search, describe, and fallback invocation cover only deferred tools; already declared tools can be called directly without discovery.
 
 The default `deferTools: all` preserves discovery for every tool outside `eagerTools`. With `mcp`, the eager set also includes all ordinary tools in the current scope. MCP catalog changes leave the prefix stable; ordinary tool registration or removal changes the declarations. Each assembly and discovery call uses its own scope's current registry.
 
@@ -40,14 +40,13 @@ The default `deferTools: all` preserves discovery for every tool outside `eagerT
 | Native, native deferred API | `search_tools`, `describe_tools`, eager tools | ordinary tool call with the returned exact name and arguments |
 | Native, other API | `search_tools`, `describe_tools`, `invoke_tool`, eager tools | `invoke_tool({ name, arguments })` |
 | Code | `run_code`; its SDK declares discovery and eager bindings | `tools[exactName](arguments)` inside a later `run_code` |
-| Both | `run_code`, discovery tools, eager tools | ordinary tool call or Code binding |
 
-`invoke_tool` is a capability fallback, not a second Code transport. The plugin removes it at the pi-ai request boundary when the resolved model supports OpenAI Responses client tool search or Anthropic tool references. Code and Both already have `run_code`, so they never expose `invoke_tool`.
+`invoke_tool` is a capability fallback, not a second Code transport. The plugin removes it at the pi-ai request boundary when the resolved model enables mid-conversation system messages and transcript-anchored tool additions. PTC already has `run_code`, so it never exposes `invoke_tool`.
 
 ## Discovery protocol
 
-1. Call `search_tools({})` or `search_tools({ query: "*" })` directly in Native/Both, or as a Code binding in Code mode, to list the complete lightweight catalog. Each entry contains only the exact `name` and a bounded `description`, matching Harness Skills' summary-first shape. A text query is an optional ranking filter: terms are matched independently instead of all being required, and a zero-match query falls back to the complete catalog. An explicit `limit` still narrows a response when desired.
-2. Call `describe_tools({ names })` for the candidates you intend to use. Each call accepts from 1 through `maxDescribeTools` names; split larger sets across calls. It returns their canonical input/output schemas and full descriptions; Code/Both also receives the active-runtime SDK excerpt.
+1. Call `search_tools({})` or `search_tools({ query: "*" })` directly in Native, or as a Code binding in Code mode, to list the complete lightweight catalog. Each entry contains only the exact `name` and a bounded `description`, matching Harness Skills' summary-first shape. A text query is an optional ranking filter: terms are matched independently instead of all being required, and a zero-match query falls back to the complete catalog. An explicit `limit` still narrows a response when desired.
+2. Call `describe_tools({ names })` for the candidates you intend to use. Each call accepts from 1 through `maxDescribeTools` names; split larger sets across calls. It returns their canonical input/output schemas and full descriptions; PTC also receives the active-runtime SDK excerpt.
 3. On a later model step, a natively capable API emits an ordinary tool call using that exact name and arguments. The plugin reconstructs successful `describe_tools` results from durable request history and injects their schemas at the matching tool-result position. A Native API without that capability calls the stable `invoke_tool({ name, arguments })` fallback. Code calls `tools[exactName](arguments)` from a later `run_code`.
 4. ToolRuntime resolves the current scoped registry at execution time. Existing visible tools run normally; removed, restricted, shadowed, or misspelled names return the current failure reason.
 
@@ -57,7 +56,7 @@ The protocol keeps no mutable reveal set: search does not unlock a capability, a
 
 ### Native API injection
 
-Harness request objects stay frozen and read-only. The plugin uses the public `llm/stream` waterfall to carry one request's durable disclosures, then reversibly wraps the resolved pi-ai `Models.streamSimple` instance. For capable models it adds pi-ai `addedToolNames` to the matching result and supplies the disclosed schemas; pi-ai serializes OpenAI `tool_search_call`/`tool_search_output` or Anthropic `tool_reference` blocks at that transcript position. Unsupported or unrecognized adapters are left untouched and retain `invoke_tool`.
+Harness request objects stay frozen and read-only. The plugin uses the public `llm/stream` waterfall to carry one request's durable disclosures, then reversibly wraps the resolved pi-ai `Models.streamSimple` instance. For capable models it replays pi-ai `SystemMessage.toolsAdded`/`toolsRemoved` and inserts an empty-content system update immediately after each successful describe result, adding only newly disclosed or changed definitions. Deferred declarations are not treated as loaded tools. Repeated descriptions do not repeat an unchanged definition; a description following a removal adds it again. Unsupported or unrecognized adapters are left untouched and retain `invoke_tool`.
 
 ## Model experience
 
@@ -85,8 +84,8 @@ The stable prefix scales with discovery declarations, the fixed fallback, and `e
 
 ## Known limitations
 
-- **The native bridge is feature-detected against pi-ai internals** — DSH exposes a read-only stream waterfall but no adapter context-transform hook. The plugin therefore wraps the current pi-ai Models instance without changing Harness source. If that internal shape changes, it fails open to the stable `invoke_tool` fallback; Both continues to have `run_code`.
-- **Native capability metadata must be accurate** — OpenAI Responses uses `compat.supportsToolSearch`; Anthropic uses `supportsToolReferences` or pi-ai's first-party model rule. A gateway that over-claims either capability may reject the injected protocol.
+- **The native bridge is feature-detected against pi-ai internals** — DSH exposes a read-only stream waterfall but no adapter context-transform hook. The plugin therefore wraps the current pi-ai Models instance without changing Harness source. If that internal shape changes, it fails open to the stable `invoke_tool` fallback; PTC continues to have `run_code`.
+- **Native capability metadata must be accurate** — The resolved model must enable `compat.supportsMidConvoSystemMessages`; Responses APIs additionally require `supportsToolSearch` or `supportsAdditionalTools`, while other APIs require `supportsMidConvoToolAdditions`. A gateway that over-claims these capabilities may reject the system updates.
 - **Presentation is not authorization** — callers that already know an exact name may try it; ToolRuntime visibility, policy, approval, guards, and scheduling remain authoritative.
 - **Independent `tool:*` guidance is not filtered** — a plugin that dynamically changes separate guidance text can still change the system prefix.
 - **Complete prompts remain authoritative** — Harness restores a complete prompt after the assembly waterfall, so discovery guidance cannot be injected there even though the stable wire projection remains.

@@ -16,7 +16,7 @@ const overrides = Object.fromEntries(Object.entries(contract.dependencies).map((
   return [name, dependency.source]
 }))
 const hostDependencies = Object.fromEntries(Object.entries(pkg.devDependencies).filter(([name]) => name.startsWith('@deepseek-ai/')))
-hostDependencies['@deepseek-ai/schemastery'] = '3.18.4'
+hostDependencies['@deepseek-ai/schemastery'] = '3.18.5'
 for (const [name, dependency] of Object.entries(contract.dependencies)) {
   if (name.startsWith('@deepseek-ai/')) hostDependencies[name] = dependency.version
 }
@@ -54,11 +54,11 @@ const pkgVersion = ${JSON.stringify(pkg.version)}
 const profileManifest = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
 assert(!Object.keys(profileManifest.dependencies).some(name => name.startsWith('@deepseek-ai/')))
 const identities = pkgName === 'dsh-workspace-envrc' ? ['dsh-workspace-overlay@0.2.0', pkgName + '@' + pkgVersion] : [pkgName + '@' + pkgVersion]
-for (const identity of identities) await setProfileVersionExemption(profileDir, identity, '0.1.7-rc.2', false, false)
+for (const identity of identities) await setProfileVersionExemption(profileDir, identity, '0.2.1-rc.1', false, false)
 let profile = loadProfileDirectory('release-smoke', profileDir, anchor)
 if (pkgName !== 'dsh-progressive-tools') {
   assert.equal(profile.skippedBundles.length, identities.length, 'Fork-only peers must fail official Host admission without informed consent')
-  for (const identity of identities) await setProfileVersionExemption(profileDir, identity, '0.1.7-rc.2', true, true)
+  for (const identity of identities) await setProfileVersionExemption(profileDir, identity, '0.2.1-rc.1', true, true)
   profile = loadProfileDirectory('release-smoke', profileDir, anchor)
 }
 assert.deepEqual(profile.skippedBundles, [])

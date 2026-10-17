@@ -1,5 +1,5 @@
 /**
- * Direct-first progressive discovery across Native, Code, and Both: stable
+ * Direct-first progressive discovery across Native and PTC: stable
  * model surfaces, lightweight search, exact describe, ordinary native calls, unchanged Code
  * dispatch, strict bounds, and effect-owned cleanup.
  */
@@ -32,11 +32,14 @@ const signal = new AbortController().signal
 class FakeRuntime extends PtcRuntime {
   readonly language: string
   readonly isolation = 'fake'
+  get programFormat(): 'function-body' | 'repl' { return this.format }
+  readonly format: 'function-body' | 'repl'
   behavior: (request: PtcRunRequest) => Promise<PtcRunResult> = () => Promise.resolve({ logs: [] })
 
-  constructor(ctx: Context, config: { language?: string } = {}) {
+  constructor(ctx: Context, config: { language?: string; programFormat?: 'function-body' | 'repl' } = {}) {
     super(ctx)
     this.language = config.language ?? 'typescript'
+    this.format = config.programFormat ?? 'function-body'
   }
 
   resolve(request: PtcRunRequest) {
@@ -57,13 +60,17 @@ interface Mounted {
 }
 
 /** Build one host catalog and mount the plugin inside an agent scope. */
-async function mount(config: Config = {}, options: { language?: string; mode?: 'native' | 'ptc' | 'both'; runtime?: boolean } = {}): Promise<Mounted> {
+async function mount(config: Config = {}, options: { language?: string; programFormat?: 'function-body' | 'repl'; mode?: 'native' | 'ptc'; runtime?: boolean } = {}): Promise<Mounted> {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime, { mode: options.mode ?? 'native' })
+  ctx.provide('workingDirectory', { ensure: async () => process.cwd() })
   if (options.runtime !== false) {
-    await ctx.plugin(FakeRuntime, options.language === undefined ? {} : { language: options.language })
+    await ctx.plugin(FakeRuntime, {
+      ...options.language === undefined ? {} : { language: options.language },
+      ...options.programFormat === undefined ? {} : { programFormat: options.programFormat },
+    })
   }
   for (const definition of [
     defineTool({
@@ -97,6 +104,7 @@ async function mount(config: Config = {}, options: { language?: string; mode?: '
   let scope!: Scope
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
     { inject: ['tools', 'systemPrompt'] }))
+  Object.assign(agent, { ctx: scope.ctx })
   scope.ctx.tools.presentAs(options.mode ?? 'ptc')
   const row = scope.ctx.plugin({ name, inject: [...inject], Config, apply }, config)
   await row.await()
@@ -121,8 +129,8 @@ async function nested(mounted: Mounted, toolName: string, args: unknown) {
 }
 
 function valueOf(result: Awaited<ReturnType<typeof nested>>) {
-  expect(result.isError).toBe(false)
   if (result.isError) throw new Error(result.error.message)
+  expect(result.isError).toBe(false)
   const outer = result.value as { result?: unknown }
   return outer.result
 }
@@ -139,8 +147,8 @@ async function direct(mounted: Mounted, toolName: string, args: unknown) {
 }
 
 function directValue(result: Awaited<ReturnType<typeof direct>>) {
-  expect(result.isError).toBe(false)
   if (result.isError) throw new Error(result.error.message)
+  expect(result.isError).toBe(false)
   return result.value
 }
 
@@ -153,7 +161,7 @@ describe('dsh-progressive-tools', () => {
     expect(() => apply(new Context(), { deferTools: 'invalid' as 'mcp' })).toThrow(/deferTools/)
   })
 
-  it.each(['native', 'ptc', 'both'] as const)('exposes ordinary tools immediately and discovers only MCP in %s', async (mode) => {
+  it.each(['native', 'ptc'] as const)('exposes ordinary tools immediately and discovers only MCP in %s', async (mode) => {
     const mounted = await mount({ deferTools: 'mcp', eagerTools: ['read_file'] }, { mode })
     const { ctx, agent, scope } = mounted
     const register = (target: Context, toolName: string) => target.tools.register(defineTool({
@@ -267,22 +275,7 @@ describe('dsh-progressive-tools', () => {
     }))).toEqual(['fallback'])
   })
 
-  it('stabilizes Both wire tools while keeping direct and Code invocation available', async () => {
-    const mounted = await mount({}, { mode: 'both' })
-    const assembly = await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent })
-    expect(assembly.tools.map(tool => tool.name).sort()).toEqual([
-      RUN_CODE_NAME, SEARCH_TOOLS_NAME, DESCRIBE_TOOLS_NAME,
-    ].sort())
-    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-    expect(sdk).toContain('ordinary tool call')
-    expect(sdk).toContain(SEARCH_TOOLS_NAME)
-    expect(sdk).not.toContain('web_search')
-    const search = directValue(await direct(mounted, SEARCH_TOOLS_NAME, { query: 'web' })) as { matches: { name: string }[] }
-    expect(search.matches.map(match => match.name)).toEqual(['web_search'])
-    expect(directValue(await direct(mounted, 'web_search', { query: 'both' }))).toEqual(['both'])
-  })
-
-  it.each(['native', 'ptc', 'both'] as const)('shows configured discovery limits before calls in %s', async (mode) => {
+  it.each(['native', 'ptc'] as const)('shows configured discovery limits before calls in %s', async (mode) => {
     const mounted = await mount({
       maxSearchResults: 2,
       maxDescribeTools: 4,
@@ -344,8 +337,8 @@ describe('dsh-progressive-tools', () => {
     const unavailable = await direct(mounted, 'win_terminal_probe', { target: 'pwsh' })
     expect(unavailable).toMatchObject({ isError: true, error: { info: { code: 'UNKNOWN_TOOL' } } })
   })
-  it('keeps Code and Both request prefixes stable across hidden catalog changes', async () => {
-    for (const mode of ['ptc', 'both'] as const) {
+  it('keeps the PTC request prefix stable across hidden catalog changes', async () => {
+    for (const mode of ['ptc'] as const) {
       const mounted = await mount({}, { mode })
       const before = await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent })
       const prefix = JSON.stringify({ sections: before.sections, tools: before.tools })
@@ -389,6 +382,17 @@ describe('dsh-progressive-tools', () => {
     await expect(native.ctx.systemPrompt.assemble({ scope: native.agent })).resolves.toBeDefined()
     const code = await mount({}, { mode: 'ptc', runtime: false })
     await expect(code.ctx.systemPrompt.assemble({ scope: code.agent })).rejects.toThrow(/requires a PTC runtime/)
+  })
+
+  it.each(['function-body', 'repl'] as const)('uses %s runtime syntax in assembly and describe SDKs', async (programFormat) => {
+    const mounted = await mount({}, { mode: 'ptc', programFormat })
+    const assembly = await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent })
+    const described = valueOf(await nested(mounted, DESCRIBE_TOOLS_NAME, { names: ['web_search'] })) as { sdk: string }
+    for (const sdk of [assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? '', described.sdk]) {
+      expect(sdk.includes('body of an async TypeScript function')).toBe(programFormat === 'function-body')
+      expect(sdk.includes('Only values emitted as program output enter the conversation.')).toBe(programFormat === 'repl')
+    }
+    await mounted.ctx.fiber.dispose()
   })
 
   it('renders the compact SDK in the active runtime language', async () => {

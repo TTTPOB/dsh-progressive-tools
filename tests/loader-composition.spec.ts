@@ -33,7 +33,6 @@ interface FixtureState {
   hidden: unknown
   hasRunCode: boolean
   nativeWire: string[]
-  bothWire: string[]
 }
 let state: FixtureState | undefined
 
@@ -68,7 +67,7 @@ const FixturePlugin = {
     }))
     await ctx.plugin(FixtureRuntime)
 
-    const mountMode = async (id: string, mode: 'native' | 'ptc' | 'both') => {
+    const mountMode = async (id: string, mode: 'native' | 'ptc') => {
       const session = Session.create(SessionId(id))
       const agent = { id: session.id, session } as unknown as Agent
       const scoped = createScope(ctx, agent)
@@ -77,7 +76,6 @@ const FixturePlugin = {
     }
     const code = await mountMode('loader-discovery-code', 'ptc')
     const native = await mountMode('loader-discovery-native', 'native')
-    const both = await mountMode('loader-discovery-both', 'both')
     const agent = code.agent
 
     const runContext = (callId: ToolCallId, toolName: string, args: unknown): ToolRunContext => ({
@@ -102,7 +100,6 @@ const FixturePlugin = {
       hidden: await hidden.execute({ city: 'Paris' }, runContext(ToolCallId('hidden'), 'fixture_weather', { city: 'Paris' })),
       hasRunCode: ctx.tools.get(RUN_CODE_NAME, agent) !== undefined,
       nativeWire: native.assembly.tools.map(tool => tool.name),
-      bothWire: both.assembly.tools.map(tool => tool.name),
     }
   },
 }
@@ -116,7 +113,7 @@ afterEach(async () => {
 })
 
 describe('dsh-progressive-tools real Loader composition', () => {
-  it.each(['all', 'mcp'] as const)('loads independently with %s disclosure in Native, Code, and Both', async (deferTools) => {
+  it.each(['all', 'mcp'] as const)('loads independently with %s disclosure in Native and PTC', async (deferTools) => {
     root = await mkdtemp(join(tmpdir(), 'dsh-progressive-tools-loader-'))
     const configPath = join(root, 'cordis.yml')
     const parsed = yaml.load(
@@ -174,6 +171,5 @@ describe('dsh-progressive-tools real Loader composition', () => {
     expect(state?.hidden).toBe('sunny:Paris')
     expect(state?.hasRunCode).toBe(true)
     expect(state?.nativeWire.toSorted()).toEqual([...ordinary, Discovery.SEARCH_TOOLS_NAME, Discovery.DESCRIBE_TOOLS_NAME, Discovery.INVOKE_TOOL_NAME].sort())
-    expect(state?.bothWire.toSorted()).toEqual([...ordinary, RUN_CODE_NAME, Discovery.SEARCH_TOOLS_NAME, Discovery.DESCRIBE_TOOLS_NAME].sort())
   })
 })

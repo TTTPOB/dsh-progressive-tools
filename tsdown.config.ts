@@ -1,7 +1,7 @@
 import type { UserConfig } from 'tsdown'
 
 export default {
-  entry: { index: 'src/index.ts', invariant: 'src/invariant.ts' },
+  entry: { index: 'src/index.ts' },
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',
@@ -14,7 +14,6 @@ export default {
       '@deepseek-ai/schemastery',
       '@deepseek-ai/cordis',
       '@deepseek-ai/dsh-ptc-runtime',
-      '@deepseek-ai/dsh-invariants',
       '@deepseek-ai/dsh-llm',
       '@deepseek-ai/dsh-scope',
       '@deepseek-ai/dsh-system-prompt',

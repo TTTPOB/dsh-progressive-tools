@@ -18,16 +18,18 @@ interface PiTool {
   parameters: Record<string, unknown>
 }
 
-interface PiToolResultMessage {
-  role: 'toolResult'
-  toolCallId: string
-  addedToolNames?: string[]
+interface PiSystemMessage {
+  role: 'system'
+  content: string | Array<{ type: 'text'; text: string }>
+  toolsAdded?: PiTool[]
+  toolsRemoved?: Array<{ name: string }>
+  timestamp: number
   [key: string]: unknown
 }
 
 interface PiContext {
   tools?: PiTool[]
-  messages: Array<PiToolResultMessage | Record<string, unknown>>
+  messages: Array<PiSystemMessage | Record<string, unknown>>
   [key: string]: unknown
 }
 
@@ -64,23 +66,15 @@ interface PatchedModels {
   hadOwn: boolean
 }
 
-/** Exact native gates used by the pi-ai release DSH currently composes. */
+/** Use pi-ai 1.1.0's explicit transcript and API-specific tool-addition capabilities. */
 function supportsDeferredTools(model: PiModel): boolean {
+  if (model.compat?.['supportsMidConvoSystemMessages'] !== true) return false
   if (model.api === 'openai-responses'
     || model.api === 'azure-openai-responses'
     || model.api === 'openai-codex-responses') {
-    return model.compat?.['supportsToolSearch'] === true
+    return model.compat['supportsToolSearch'] === true || model.compat['supportsAdditionalTools'] === true
   }
-  if (model.api !== 'anthropic-messages') return false
-  const explicit = model.compat?.['supportsToolReferences']
-  if (typeof explicit === 'boolean') return explicit
-  if (model.provider !== 'anthropic' || model.id?.includes('haiku') === true) return false
-  const version = model.id?.match(/^claude-(?:opus|sonnet|fable)-(\d+)(?:-(\d+))?(?:-|$)/u)
-  if (version === undefined || version === null) return false
-  const major = Number(version[1])
-  const minorText = version[2]
-  const minor = minorText !== undefined && minorText.length < 8 ? Number(minorText) : 0
-  return major > 4 || (major === 4 && minor >= 5)
+  return model.compat['supportsMidConvoToolAdditions'] === true
 }
 
 /** Flatten only textual presentation from one tool result. */
@@ -109,7 +103,16 @@ function disclosureFrame(
 ): DisclosureFrame {
   const callNames = new Map<string, string>()
   const loads = new Map<string, PiTool[]>()
+  // Deferred declarations supply schemas, not evidence that a tool is loaded.
+  const loaded = new Set(options.tools?.filter(tool => !tool.deferLoading).map(tool => tool.name))
   for (const message of options.messages) {
+    if (message.role === 'developer') {
+      for (const block of message.content) {
+        if (block.type === 'tool-removal') loaded.delete(block.toolName)
+        if (block.type === 'tool-addition') loaded.add(block.toolName)
+      }
+      continue
+    }
     if (message.role === 'assistant') {
       for (const block of message.content) {
         if (block.type === 'tool-call') callNames.set(String(block.id), block.name)
@@ -135,29 +138,48 @@ function disclosureFrame(
   }
   return {
     loads,
-    progressiveSurface: options.tools?.some(tool => progressiveNames.has(tool.name)) ?? false,
+    progressiveSurface: [...loaded].some(toolName => progressiveNames.has(toolName)),
   }
 }
 
-/** Add schemas at their result positions without mutating DSH or pi-ai input. */
+/** Replay loaded tools and append system deltas after successful describe results. */
 function augmentContext(context: PiContext, frame: DisclosureFrame, invokeToolName: string): PiContext {
-  const tools = new Map<string, PiTool>()
-  for (const tool of context.tools ?? []) {
-    if (tool.name !== invokeToolName) tools.set(tool.name, tool)
-  }
-  for (const disclosed of frame.loads.values()) {
-    for (const tool of disclosed) tools.set(tool.name, tool)
-  }
-  const messages = context.messages.map((message) => {
-    if (message['role'] !== 'toolResult' || typeof message['toolCallId'] !== 'string') return message
+  const initial = context.tools?.filter(tool => tool.name !== invokeToolName)
+  const loaded = new Map(initial?.map(tool => [tool.name, tool]))
+  const messages: PiContext['messages'] = []
+  for (const message of context.messages) {
+    if (message['role'] === 'system') {
+      const system = message as PiSystemMessage
+      const toolsAdded = system.toolsAdded?.filter(tool => tool.name !== invokeToolName)
+      const toolsRemoved = system.toolsRemoved?.filter(tool => tool.name !== invokeToolName)
+      for (const tool of toolsRemoved ?? []) loaded.delete(tool.name)
+      for (const tool of toolsAdded ?? []) loaded.set(tool.name, tool)
+      messages.push({
+        ...system,
+        ...toolsAdded === undefined ? {} : { toolsAdded },
+        ...toolsRemoved === undefined ? {} : { toolsRemoved },
+      })
+      continue
+    }
+    messages.push(message)
+    if (message['role'] !== 'toolResult' || typeof message['toolCallId'] !== 'string') continue
     const disclosed = frame.loads.get(message['toolCallId'])
-    return disclosed === undefined
-      ? message
-      : { ...message, addedToolNames: disclosed.map(tool => tool.name) }
-  })
+    if (disclosed === undefined) continue
+    const toolsAdded = disclosed.filter(tool => JSON.stringify(loaded.get(tool.name)) !== JSON.stringify(tool))
+    if (toolsAdded.length === 0) continue
+    const toolsRemoved = toolsAdded.filter(tool => loaded.has(tool.name)).map(tool => ({ name: tool.name }))
+    messages.push({
+      role: 'system',
+      content: '',
+      timestamp: typeof message['timestamp'] === 'number' ? message['timestamp'] : 0,
+      toolsAdded,
+      ...toolsRemoved.length === 0 ? {} : { toolsRemoved },
+    })
+    for (const tool of toolsAdded) loaded.set(tool.name, tool)
+  }
   const { tools: _originalTools, ...rest } = context
-  return tools.size > 0
-    ? { ...rest, messages, tools: [...tools.values()] }
+  return initial !== undefined && initial.length > 0
+    ? { ...rest, messages, tools: initial }
     : { ...rest, messages }
 }
 

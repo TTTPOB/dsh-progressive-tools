@@ -2,16 +2,16 @@
 
 [English](README.md) | 中文
 
-面向 DeepSeek Harness Native、Code 与 Both 模式中所有 Agent preset 的自动挂载、渐进式工具披露层。它只改变呈现层：即使实时 ToolRuntime 目录注册、注销、限制或遮蔽非 eager 工具，模型可见的工具前缀仍保持稳定。
+面向 DeepSeek Harness Native 与 PTC（Code）模式中所有 Agent preset 的自动挂载、渐进式工具披露层。它只改变呈现层：即使实时 ToolRuntime 目录注册、注销、限制或遮蔽非 eager 工具，模型可见的工具前缀仍保持稳定。
 
 
 ## 发布验证
 
-本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用官方 DSH `0.1.7-rc.2`；本包不消费 Pi adapter，也不需要外部 fork。`pnpm release:pack && pnpm verify:consumer` 检查 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，profile 只安装插件并关闭自动 peers；不启动 Host。
+本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用官方 DSH `0.2.1-rc.1`；native 协议测试同时使用 pi-ai `1.1.0` 的 transcript 回放；本包测试不需要外部 fork。`pnpm release:pack && pnpm verify:consumer` 检查 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，profile 只安装插件并关闭自动 peers；不启动 Host。
 
 ## 安装与组装
 
-按照 [`INSTALL.md`](INSTALL.md) 将此包与官方 DSH 0.1.7-rc.2 组合。通过正常 profile dependencies 安装（`autoInstallPeers: false`），并由 `$DSH_HOME/cordis.patch.yml` 的共用插件行在 host plane 挂载一次，再由 ToolRuntime 与 SystemPrompt 的作用域视图将它传递给所有已有和未来的 Agent preset。无需复制、编辑或选择额外 preset。插件固定依赖 `tools`、`systemPrompt` 与 `llm`；只有 Agent 实际呈现 Code Mode 时才需要 `ptcRuntime`。它不会修改 Harness checkout。
+按照 [`INSTALL.md`](INSTALL.md) 将此包与官方 DSH 0.2.1-rc.1 组合。通过正常 profile dependencies 安装（`autoInstallPeers: false`），并由 `$DSH_HOME/cordis.patch.yml` 的共用插件行在 host plane 挂载一次，再由 ToolRuntime 与 SystemPrompt 的作用域视图将它传递给所有已有和未来的 Agent preset。无需复制、编辑或选择额外 preset。插件固定依赖 `tools`、`systemPrompt` 与 `llm`；只有 Agent 实际呈现 Code Mode 时才需要 `ptcRuntime`。它不会修改 Harness checkout。
 
 ```yaml
 - id: progressive-tools
@@ -29,7 +29,7 @@
 
 ## 仅延迟 MCP 工具
 
-在上面的配置块中设置 `deferTools: mcp`，只延迟 DSH MCP 客户端使用的 `mcp__<server>__<tool>` 命名空间。其他可见工具立即出现在 Native/Both 的工具声明和 Code SDK 中，首次组装之后注册的普通工具也自动直接暴露。`eagerTools` 可额外直接暴露指定 MCP 工具。搜索、描述和兜底调用只覆盖延迟工具；已声明的工具无需发现步骤即可直接调用。
+在上面的配置块中设置 `deferTools: mcp`，只延迟 DSH MCP 客户端使用的 `mcp__<server>__<tool>` 命名空间。其他可见工具立即出现在 Native 的工具声明和 Code SDK 中，首次组装之后注册的普通工具也自动直接暴露。`eagerTools` 可额外直接暴露指定 MCP 工具。搜索、描述和兜底调用只覆盖延迟工具；已声明的工具无需发现步骤即可直接调用。
 
 默认值 `deferTools: all` 对 `eagerTools` 以外的全部工具启用发现。在 `mcp` 配置下，eager 集合还包含当前作用域的全部普通工具。MCP 目录变动保持前缀稳定；普通工具的注册和移除会改变声明。每次组装和发现调用均使用对应作用域的当前注册表。
 
@@ -40,14 +40,13 @@
 | Native，原生延迟披露 API | `search_tools`、`describe_tools`、eager 工具 | 使用返回的精确名称与参数发起普通工具调用 |
 | Native，其他 API | `search_tools`、`describe_tools`、`invoke_tool`、eager 工具 | `invoke_tool({ name, arguments })` |
 | Code | 线路仅有 `run_code`，其 SDK 声明发现与 eager binding | 后续 `run_code` 中调用 `tools[exactName](arguments)` |
-| Both | `run_code`、发现工具、eager 工具 | 普通调用或 Code binding |
 
-`invoke_tool` 是能力兜底，不是第二套 Code transport。若解析后的模型支持 OpenAI Responses client tool search 或 Anthropic tool reference，插件会在 pi-ai 请求边界移除它。Code 与 Both 已有 `run_code`，因此不会暴露 `invoke_tool`。
+`invoke_tool` 是能力兜底，不是第二套 Code transport。若解析后的模型同时支持会话中途的 system message 与 transcript 工具增量，插件会在 pi-ai 请求边界移除它。PTC 已有 `run_code`，因此不会暴露 `invoke_tool`。
 
 ## 发现协议
 
-1. Native/Both 直接调用 `search_tools({})` 或 `search_tools({ query: "*" })`，Code 则把它作为 Code binding 调用，以列出完整轻量目录。与 Harness Skills 的“摘要优先”形态一致，每项只包含精确 `name` 与有界 `description`。文本查询只是可选的排序过滤器：各查询词独立匹配，不再要求全部命中；零命中时自动退回完整目录。需要时仍可显式传入 `limit` 缩小响应。
-2. 对准备使用的候选项调用 `describe_tools({ names })`。每次调用接受 1 到 `maxDescribeTools` 个名称；更多名称应拆分为多次调用。它返回完整描述和 canonical 输入/输出 schema；Code/Both 还会获得当前 runtime 的 SDK 片段。
+1. Native 直接调用 `search_tools({})` 或 `search_tools({ query: "*" })`，Code 则把它作为 Code binding 调用，以列出完整轻量目录。与 Harness Skills 的“摘要优先”形态一致，每项只包含精确 `name` 与有界 `description`。文本查询只是可选的排序过滤器：各查询词独立匹配，不再要求全部命中；零命中时自动退回完整目录。需要时仍可显式传入 `limit` 缩小响应。
+2. 对准备使用的候选项调用 `describe_tools({ names })`。每次调用接受 1 到 `maxDescribeTools` 个名称；更多名称应拆分为多次调用。它返回完整描述和 canonical 输入/输出 schema；PTC 还会获得当前 runtime 的 SDK 片段。
 3. 后续模型步骤中，原生支持的 API 使用该精确名称与参数发起普通工具调用。插件从持久化请求历史重建成功的 `describe_tools` 结果，并把 schema 注入对应 tool-result 位置。不支持该能力的 Native API 使用稳定的 `invoke_tool({ name, arguments })` 兜底。Code 在后续 `run_code` 中调用 `tools[exactName](arguments)`。
 4. 执行时 ToolRuntime 重新解析当前作用域目录。仍存在且可见的工具正常运行；已删除、受限、被遮蔽或拼错的名称返回当前失败原因。
 
@@ -57,7 +56,7 @@
 
 ### Native API 注入
 
-Harness 请求对象保持冻结与只读。插件通过公开的 `llm/stream` waterfall 传递当前请求的持久化披露信息，再以可恢复方式包装解析后的 pi-ai `Models.streamSimple` 实例。对支持的模型，它在匹配结果上添加 pi-ai `addedToolNames` 并提供披露 schema；pi-ai 随后在该上下文位置序列化 OpenAI `tool_search_call`/`tool_search_output` 或 Anthropic `tool_reference`。不支持或无法识别的适配器保持原样并保留 `invoke_tool`。
+Harness 请求对象保持冻结与只读。插件通过公开的 `llm/stream` waterfall 传递当前请求的持久化披露信息，再以可恢复方式包装解析后的 pi-ai `Models.streamSimple` 实例。对支持的模型，它回放 pi-ai `SystemMessage.toolsAdded`/`toolsRemoved`，并在成功的 describe 结果之后立即插入正文为空的 system update，仅添加新披露或已变化的定义。延迟声明不等于已加载工具；重复描述不会重复添加未变化的定义，移除后的再次描述则会重新添加。不支持或无法识别的适配器保持原样并保留 `invoke_tool`。
 
 ## 模型体验
 
@@ -85,8 +84,8 @@ An unavailable call fails with the current ToolRuntime reason.
 
 ## 已知限制
 
-- **Native bridge 会按特征探测 pi-ai 内部对象** —— DSH 提供只读 stream waterfall，但没有 adapter context-transform hook。因此插件在不改 Harness 源码的前提下包装当前 pi-ai Models 实例。若内部形态变化，它会退化为稳定 `invoke_tool`；Both 仍有 `run_code`。
-- **Native 能力元数据必须准确** —— OpenAI Responses 使用 `compat.supportsToolSearch`；Anthropic 使用 `supportsToolReferences` 或 pi-ai 的第一方模型规则。错误宣称能力的 gateway 可能拒绝注入协议。
+- **Native bridge 会按特征探测 pi-ai 内部对象** —— DSH 提供只读 stream waterfall，但没有 adapter context-transform hook。因此插件在不改 Harness 源码的前提下包装当前 pi-ai Models 实例。若内部形态变化，它会退化为稳定 `invoke_tool`；PTC 仍有 `run_code`。
+- **Native 能力元数据必须准确** —— 解析后的模型必须启用 `compat.supportsMidConvoSystemMessages`；Responses API 还要求 `supportsToolSearch` 或 `supportsAdditionalTools`，其他 API 则要求 `supportsMidConvoToolAdditions`。错误宣称能力的 gateway 可能拒绝 system update。
 - **呈现不是授权** —— 已知精确名称的调用方可以尝试调用；ToolRuntime 的可见性、policy、approval、guard 与调度仍是最终权威。
 - **不会过滤独立 `tool:*` guidance** —— 若其他插件动态改变单独指引文本，system prefix 仍可能变化。
 - **完整提示仍是最终权威** —— Harness 会在 assembly waterfall 后恢复 complete prompt，因此无法向其中注入发现指引，但稳定 wire 投影仍保留。

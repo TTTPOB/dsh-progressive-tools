@@ -21,8 +21,6 @@ const required = [
   'cordis.patch.yml',
   'lib/index.js',
   'lib/index.d.ts',
-  'lib/invariant.js',
-  'lib/invariant.d.ts',
 ]
 const missing = required.filter(file => !files.has(file))
 if (missing.length > 0) {
