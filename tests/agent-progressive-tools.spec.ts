@@ -153,16 +153,111 @@ function directValue(result: Awaited<ReturnType<typeof direct>>) {
 }
 
 describe('dsh-progressive-tools', () => {
-  it('defaults to all tools and rejects an invalid disclosure selection', () => {
-    expect(Config({}).deferTools).toBe('all')
+  it('validates ordered rules at schema load and direct apply', () => {
+    const invalid = [null, {}, 'read_file', [null], [{}],
+      [{ glob: '*', regex: '.*', disclosure: 'eager' }],
+      [{ glob: 1, disclosure: 'eager' }], [{ regex: 1, disclosure: 'eager' }],
+      [{ glob: '*', disclosure: 'hidden' }], [{ glob: '*', disclosure: 'eager', extra: true }],
+      [{ regex: '[', disclosure: 'eager' }]]
+    for (const toolDisclosureRules of invalid) {
+      const config = { toolDisclosureRules } as unknown as Config
+      expect(() => Config(config)).toThrow()
+      expect(() => apply(new Context(), config)).toThrow()
+    }
+    expect(Config({ toolDisclosureRules: [{ glob: 'future_tool', disclosure: 'eager' }] }).toolDisclosureRules)
+      .toEqual([{ glob: 'future_tool', disclosure: 'eager' }])
+  })
+
+  it.each(['native', 'ptc'] as const)('shares rule classification across %s declarations and live catalogs', async (mode) => {
+    const mounted = await mount({ eagerTools: ['read_file'], toolDisclosureRules: [
+      { glob: 'read_file', disclosure: 'eager' },
+      { glob: '*_file', disclosure: 'deferred' },
+      { regex: '^web_', disclosure: 'eager' },
+      { glob: 'future_?', disclosure: 'eager' },
+      { glob: 'literal.[x]', disclosure: 'eager' },
+      { glob: 'own_rule', disclosure: 'eager' },
+      { regex: '^mcp__.*__promoted$', disclosure: 'eager' },
+      // Matching control names must not change mode-specific infrastructure.
+      { regex: '^(search_tools|describe_tools|invoke_tool|run_code)$', disclosure: 'deferred' },
+    ] }, { mode })
+    const { ctx, agent, scope } = mounted
+    const call = async (name: string, args: unknown) => mode === 'ptc'
+      ? valueOf(await nested(mounted, name, args)) : directValue(await direct(mounted, name, args))
+    const register = (target: Context, name: string, deferLoading = false) => target.tools.register(defineTool({
+      name, description: 'Rule test echo.', ...deferLoading ? { deferLoading: true as const } : {}, parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: () => Promise.resolve(name),
+    }))
+    const check = async (eager: string[], deferred: string[]) => {
+      const assembly = await ctx.systemPrompt.assemble({ scope: agent })
+      const surface = mode === 'native' ? assembly.tools.map(tool => tool.name)
+        : (assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? '')
+      for (const name of [...eager, SEARCH_TOOLS_NAME, DESCRIBE_TOOLS_NAME]) expect(surface).toContain(name)
+      for (const name of deferred) expect(surface).not.toContain(name)
+      expect(assembly.tools.map(tool => tool.name)).toEqual(mode === 'ptc' ? [RUN_CODE_NAME]
+        : expect.arrayContaining([SEARCH_TOOLS_NAME, DESCRIBE_TOOLS_NAME, INVOKE_TOOL_NAME]))
+      const search = await call(SEARCH_TOOLS_NAME, {}) as { matches: { name: string }[] }
+      expect(search.matches.map(tool => tool.name).sort()).toEqual([...deferred].sort())
+      for (const name of deferred) {
+        const described = await call(DESCRIBE_TOOLS_NAME, { names: [name] }) as { tools: { name: string }[]; sdk?: string }
+        expect(described.tools[0]?.name).toBe(name)
+        if (mode === 'ptc') expect(described.sdk).toContain(name)
+      }
+      for (const name of eager) {
+        await expect(call(DESCRIBE_TOOLS_NAME, { names: [name] })).rejects.toThrow(/unknown or unavailable/)
+        if (mode === 'native') {
+          await expect(call(INVOKE_TOOL_NAME, { name, arguments: {} })).rejects.toThrow(/unknown or unavailable/)
+          expect(assembly.tools.find(tool => tool.name === name)?.deferLoading).not.toBe(true)
+        }
+      }
+    }
+    try {
+      await check(['web_search'], ['read_file', 'write_file'])
+      const remove = [register(scope.ctx, 'future_a'), register(scope.ctx, 'future_ab'),
+        register(scope.ctx, 'literal.[x]'), register(scope.ctx, 'literalXx'),
+        register(scope.ctx, 'own_default', true), register(scope.ctx, 'own_rule', true),
+        register(scope.ctx, 'mcp__fixture__promoted'), register(scope.ctx, 'mcp__fixture__default')]
+      await check(['web_search', 'future_a', 'literal.[x]', 'own_rule', 'mcp__fixture__promoted'],
+        ['read_file', 'write_file', 'future_ab', 'literalXx', 'own_default', 'mcp__fixture__default'])
+      if (mode === 'native') expect(await call(INVOKE_TOOL_NAME, { name: 'own_default', arguments: {} })).toBe('own_default')
+      const other = { id: SessionId('rules-other'), session: Session.create(SessionId('rules-other')) } as Agent
+      expect(ctx.tools.get('future_a', other)).toBeUndefined()
+      expect(ctx.tools.get('own_default', other)).toBeUndefined()
+      for (const dispose of remove) dispose()
+      await check(['web_search'], ['read_file', 'write_file'])
+      await expect(call(DESCRIBE_TOOLS_NAME, { names: ['future_ab'] })).rejects.toThrow(/unknown or unavailable/)
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it.each(['native', 'ptc'] as const)('keeps legacy eager override of own deferLoading in %s', async (mode) => {
+    const mounted = await mount({ eagerTools: ['own_eager'] }, { mode })
+    mounted.ctx.tools.register(defineTool({
+      name: 'own_eager', description: 'Own deferred marker.', deferLoading: true, parameters: {},
+      output: { schema: { type: 'boolean' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }, execute: () => Promise.resolve(true),
+    }))
+    try {
+      const assembly = await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent })
+      if (mode === 'native') expect(assembly.tools.find(tool => tool.name === 'own_eager')).toMatchObject({ name: 'own_eager' })
+      else expect(assembly.sections.find(section => section.name === 'tools:sdk')?.text).toContain('own_eager')
+      expect(assembly.tools.find(tool => tool.name === 'own_eager')?.deferLoading).not.toBe(true)
+      const search = mode === 'native' ? directValue(await direct(mounted, SEARCH_TOOLS_NAME, {}))
+        : valueOf(await nested(mounted, SEARCH_TOOLS_NAME, {}))
+      expect(JSON.stringify(search)).not.toContain('own_eager')
+    } finally { await mounted.ctx.fiber.dispose() }
+  })
+
+  it('defaults to deferred tools and rejects the removed deferTools option', () => {
+    expect(Config({}).toolDisclosureRules).toEqual([])
     expect(Config({}).maxDescribeTools).toBe(10)
-    expect(Config({ deferTools: 'mcp' }).deferTools).toBe('mcp')
-    expect(() => Config({ deferTools: 'invalid' as 'mcp' })).toThrow()
-    expect(() => apply(new Context(), { deferTools: 'invalid' as 'mcp' })).toThrow(/deferTools/)
+    for (const deferTools of ['all', 'mcp', 'invalid']) {
+      const legacy = { deferTools } as unknown as Config
+      expect(() => Config(legacy)).toThrow(/deferTools.*removed/)
+      expect(() => apply(new Context(), legacy)).toThrow(/deferTools.*removed/)
+    }
   })
 
   it.each(['native', 'ptc'] as const)('exposes ordinary tools immediately and discovers only MCP in %s', async (mode) => {
-    const mounted = await mount({ deferTools: 'mcp', eagerTools: ['read_file'] }, { mode })
+    const mounted = await mount({ toolDisclosureRules: [{ glob: '*', disclosure: 'eager' }, { glob: 'mcp__*', disclosure: 'deferred' }], eagerTools: ['read_file'] }, { mode })
     const { ctx, agent, scope } = mounted
     const register = (target: Context, toolName: string) => target.tools.register(defineTool({
       name: toolName,

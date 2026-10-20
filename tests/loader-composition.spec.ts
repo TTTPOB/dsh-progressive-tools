@@ -113,7 +113,7 @@ afterEach(async () => {
 })
 
 describe('dsh-progressive-tools real Loader composition', () => {
-  it.each(['all', 'mcp'] as const)('loads independently with %s disclosure in Native and PTC', async (deferTools) => {
+  it.each(['all', 'mcp'] as const)('loads independently with %s disclosure in Native and PTC', async (selection) => {
     root = await mkdtemp(join(tmpdir(), 'dsh-progressive-tools-loader-'))
     const configPath = join(root, 'cordis.yml')
     const parsed = yaml.load(
@@ -131,7 +131,7 @@ describe('dsh-progressive-tools real Loader composition', () => {
       { id: 'system-prompt', name: 'test-system-prompt' },
       { id: 'llm', name: 'test-llm' },
       { id: 'tools', name: 'test-tools', config: { mode: 'native' } },
-      ...bundleRows.map(row => ({ ...row, config: { maxSearchResults: 1, deferTools } })),
+      ...bundleRows.map(row => ({ ...row, config: { maxSearchResults: 1, toolDisclosureRules: selection === 'mcp' ? [{ glob: '*', disclosure: 'eager' }, { glob: 'mcp__*', disclosure: 'deferred' }] : [] } })),
       { id: 'fixture', name: 'test-fixture' },
     ], { schema: entryListSchema, noRefs: true }))
 
@@ -161,12 +161,12 @@ describe('dsh-progressive-tools real Loader composition', () => {
     expect(state?.wire).toEqual([RUN_CODE_NAME])
     expect(state?.sdk).toContain(Discovery.SEARCH_TOOLS_NAME)
     expect(state?.sdk).toContain(Discovery.DESCRIBE_TOOLS_NAME)
-    const ordinary = deferTools === 'mcp' ? ['fixture_weather', 'fixture_write'] : []
-    expect(state?.sdk.includes('fixture_weather')).toBe(deferTools === 'mcp')
+    const ordinary = selection === 'mcp' ? ['fixture_weather', 'fixture_write'] : []
+    expect(state?.sdk.includes('fixture_weather')).toBe(selection === 'mcp')
     expect(state?.search).toMatchObject({
-      total: deferTools === 'mcp' ? 0 : 2,
+      total: selection === 'mcp' ? 0 : 2,
       truncated: false,
-      matches: deferTools === 'mcp' ? [] : [{ name: 'fixture_weather' }, { name: 'fixture_write' }],
+      matches: selection === 'mcp' ? [] : [{ name: 'fixture_weather' }, { name: 'fixture_write' }],
     })
     expect(state?.hidden).toBe('sunny:Paris')
     expect(state?.hasRunCode).toBe(true)

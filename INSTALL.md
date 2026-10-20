@@ -23,7 +23,7 @@ The defaults require no edits. To override the shared row in `$DSH_HOME/cordis.p
 ```yaml
 - id: progressive-tools
   config:
-    deferTools: all
+    toolDisclosureRules: []
     eagerTools: []
     maxSearchResults: 10
     maxDescribeTools: 10
@@ -33,7 +33,7 @@ The defaults require no edits. To override the shared row in `$DSH_HOME/cordis.p
     maxResultBytes: 1048576
 ```
 
-Set `deferTools: mcp` to defer only MCP tools. Patches replace the entire config; include every option that should remain explicit. Unknown eager names fail assembly.
+Use ordered `toolDisclosureRules` for eager/deferred overrides; see [Disclosure rules](README.md#disclosure-rules) for MCP-only configuration and migration from the removed `deferTools` option. Patches replace the entire config; include every option that should remain explicit. Unknown eager names fail assembly.
 
 ## Verify
 

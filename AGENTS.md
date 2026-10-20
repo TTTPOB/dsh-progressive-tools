@@ -8,7 +8,7 @@
 - 固定依赖 `tools`、`systemPrompt`、`llm`；只有 Agent 实际呈现 Code Mode 时才需要 `ptcRuntime`。
 - **不要同时激活自带 bundle patch**，否则重复插入行。
 - `eagerTools` 只放真正稳定、需要直接声明的精确工具名。**未知 eager 名称会让 assembly 失败。**
-- `deferTools: mcp` 时，eager 集合还包含当前作用域的全部普通工具。
+- `toolDisclosureRules` 是有序 glob/regex 规则，最后命中优先于 `eagerTools`；默认延迟全部非 eager 工具。旧 `deferTools` 配置会报迁移错误。
 - 条目数、字素数、`maxSearchResults`／`maxDescribeTools`、`maxSummaryChars`／`maxQueryChars`／`maxToolNameChars`／`maxResultBytes` 都在成功返回前强制执行。
 
 ## 权威与边界

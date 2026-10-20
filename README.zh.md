@@ -16,6 +16,7 @@
 ```yaml
 - id: progressive-tools
   config:
+    toolDisclosureRules: []
     eagerTools: []
     maxSearchResults: 10
     maxDescribeTools: 10
@@ -27,11 +28,31 @@
 
 上述配置块展示默认值，也可覆盖 `$DSH_HOME/cordis.patch.yml` 中的共用行；不要同时激活自带 bundle patch，以免重复插入。`eagerTools` 只应包含真正稳定、需要直接声明的精确工具名。未知 eager 名称会让 assembly 失败。条目数、字素数和结果 UTF-8 字节上限都会在成功返回前强制执行。
 
-## 仅延迟 MCP 工具
+## 披露规则
 
-在上面的配置块中设置 `deferTools: mcp`，只延迟 DSH MCP 客户端使用的 `mcp__<server>__<tool>` 命名空间。其他可见工具立即出现在 Native 的工具声明和 Code SDK 中，首次组装之后注册的普通工具也自动直接暴露。`eagerTools` 可额外直接暴露指定 MCP 工具。搜索、描述和兜底调用只覆盖延迟工具；已声明的工具无需发现步骤即可直接调用。
+`toolDisclosureRules` 是有序数组。每条规则必须恰好包含 `glob: string` 或 `regex: string` 之一，以及 `disclosure: eager | deferred`；多余的规则字段会被拒绝。规则区分大小写，只匹配工具名称，不匹配描述。**最后一条命中的规则生效**，精确名称没有特殊优先级。
 
-默认值 `deferTools: all` 对 `eagerTools` 以外的全部工具启用发现。在 `mcp` 配置下，eager 集合还包含当前作用域的全部普通工具。MCP 目录变动保持前缀稳定；普通工具的注册和移除会改变声明。每次组装和发现调用均使用对应作用域的当前注册表。
+```yaml
+    toolDisclosureRules:
+      - glob: "*"
+        disclosure: eager
+      - glob: "mcp__*"
+        disclosure: deferred
+      - glob: "mcp__weather__forecast"
+        disclosure: eager
+      - regex: "^(write|delete)_"
+        disclosure: deferred
+```
+
+此例立即声明普通工具，延迟除指定天气工具以外的 MCP 工具，并延迟以 `write_` 或 `delete_` 开头的名称。后面的宽泛规则也能覆盖前面的精确规则。
+
+- **Glob：** 匹配整个工具名；`*` 匹配零个或多个字符，`?` 匹配一个 Unicode 字符。其他字符均按字面匹配，包括方括号、花括号、斜杠和反斜杠。不支持字符类、花括号展开、路径语义或转义；复杂模式请使用 regex。没有通配符的 glob 就是精确名称。
+- **Regex：** 使用 JavaScript `new RegExp(source)` 语法，不加 `/pattern/` 分隔符或 flags。默认匹配子串；需要整名匹配时自行添加 `^` 和 `$`。非法正则及错误规则在加载配置时失败，直接调用 `apply` 也会校验。
+- **优先级：** 命中的规则 → 旧 `eagerTools` → 工具自身的 `deferLoading: true` → 默认 deferred。无规则时，所有非 eager 工具仍然延迟。显式 eager 规则和 `eagerTools` 可覆盖工具自身延迟标记；deferred 规则可覆盖 `eagerTools`。旧 eager 名称不可见时仍会让 assembly 失败，即使规则将其设为 deferred。
+- **控制工具：** 对 `search_tools`、`describe_tools`、`invoke_tool`、`run_code` 忽略所有规则，包括精确匹配。它们维持各模式和能力下的原有呈现；规则既不能隐藏，也不能强制暴露它们。
+- **实时作用域：** 规则可以匹配尚未注册的名称。每次组装和 search/describe/invoke 调用均用同一策略分类当前作用域注册表。eager 工具进入 Native 声明或 Code SDK；只有 deferred 工具进入发现及兜底调用目录。eager 工具注册和移除会改变前缀，deferred 目录变动不会。
+
+**迁移：** 已移除 `deferTools`；配置中只要包含该项就会明确报迁移错误。删除 `deferTools: all` 即保留默认行为；将 `deferTools: mcp` 替换为上例前两条规则。如果原来用 `eagerTools` 设置 MCP 例外，需要在 MCP deferred 规则**之后**添加精确 eager 规则，因为规则现在优先于旧列表。宽泛的 eager 规则也会覆盖工具自身的延迟标记，需要时应另加 deferred 例外。配置需显式更新；本包不会自动迁移已有安装。
 
 ## 各模式的稳定表面
 
@@ -80,7 +101,7 @@ An unavailable call fails with the current ToolRuntime reason.
 
 ### Token 与 KV Cache 影响
 
-稳定前缀只随发现声明、固定兜底与 `eagerTools` 增长，不随完整可见目录增长。Native API 会在历史 describe 结果处追加披露 schema，而不是替换顶层工具数组，因此缓存前缀保持稳定。注册或注销非 eager 工具只改变后续发现结果。这直接针对 [deepseek-harness discussion #935](https://github.com/deepseek-ai/deepseek-harness/discussions/935) 中的动态工具前缀失效问题。
+前缀只随发现声明、固定兜底与最终 eager 集合增长，不随完整可见目录增长。Native API 会在历史 describe 结果处追加披露 schema，而不是替换顶层工具数组，因此缓存前缀保持稳定。注册或注销非 eager 工具只改变后续发现结果。这直接针对 [deepseek-harness discussion #935](https://github.com/deepseek-ai/deepseek-harness/discussions/935) 中的动态工具前缀失效问题。
 
 ## 已知限制
 

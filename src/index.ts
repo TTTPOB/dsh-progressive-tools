@@ -30,10 +30,15 @@ export const INVOKE_TOOL_NAME = 'invoke_tool'
 
 const DISCOVERY_NAMES = new Set([RUN_CODE_NAME, SEARCH_TOOLS_NAME, DESCRIBE_TOOLS_NAME, INVOKE_TOOL_NAME])
 
+/** Ordered presentation override; the last matching rule wins. */
+export type ToolDisclosureRule = ({ glob: string; regex?: never } | { regex: string; glob?: never }) & {
+  disclosure: 'eager' | 'deferred'
+}
+
 /** Plugin config: every catalog bound and eager declaration is deployment-owned. */
 export interface Config {
-  /** Defer all non-eager tools, or only tools in DSH's mcp__ namespace. */
-  deferTools?: 'all' | 'mcp'
+  /** Ordered whole-name glob or JavaScript regex overrides. */
+  toolDisclosureRules?: ToolDisclosureRule[]
   /** Stable non-discovery tools declared eagerly on the projected model surface. */
   eagerTools?: string[]
   /** Maximum filtered matches, or explicitly limited catalog entries, one search may return. */
@@ -51,7 +56,7 @@ export interface Config {
 }
 
 const DEFAULTS = {
-  deferTools: 'all',
+  toolDisclosureRules: [] as ToolDisclosureRule[],
   eagerTools: [] as string[],
   maxSearchResults: 10,
   maxDescribeTools: 10,
@@ -62,8 +67,8 @@ const DEFAULTS = {
 } as const
 
 /** Validated Loader schema for Config. */
-export const Config: z<Config> = z.object({
-  deferTools: z.union(['all', 'mcp']).default(DEFAULTS.deferTools),
+const configSchema: z<Config> = z.object({
+  toolDisclosureRules: z.any<ToolDisclosureRule[]>(),
   eagerTools: z.array(z.string()).default([]),
   maxSearchResults: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULTS.maxSearchResults),
   maxDescribeTools: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULTS.maxDescribeTools),
@@ -73,13 +78,18 @@ export const Config: z<Config> = z.object({
   maxResultBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULTS.maxResultBytes),
 })
 
+export const Config: z<Config> = z.transform(configSchema, (config) => {
+  resolveConfig(config)
+  return { ...config, toolDisclosureRules: config.toolDisclosureRules ?? [] }
+})
+
 /** Cordis plugin name. */
 export const name = 'agent-progressive-tools'
 /** Always-required services; PTC runtime is resolved only for PTC assembly. */
 export const inject = ['tools', 'systemPrompt', 'llm']
 
 interface ResolvedConfig {
-  deferTools: 'all' | 'mcp'
+  toolDisclosureRules: { pattern: RegExp; disclosure: 'eager' | 'deferred' }[]
   eagerTools: string[]
   maxSearchResults: number
   maxDescribeTools: number
@@ -105,7 +115,7 @@ interface SearchMatch {
 /** Resolve defaults for direct programmatic callers as well as the Loader. */
 function resolveConfig(config: Config): ResolvedConfig {
   const resolved: ResolvedConfig = {
-    deferTools: config.deferTools ?? DEFAULTS.deferTools,
+    toolDisclosureRules: compileRules(config.toolDisclosureRules === undefined ? DEFAULTS.toolDisclosureRules : config.toolDisclosureRules),
     eagerTools: [...config.eagerTools ?? DEFAULTS.eagerTools],
     maxSearchResults: config.maxSearchResults ?? DEFAULTS.maxSearchResults,
     maxDescribeTools: config.maxDescribeTools ?? DEFAULTS.maxDescribeTools,
@@ -114,11 +124,11 @@ function resolveConfig(config: Config): ResolvedConfig {
     maxToolNameChars: config.maxToolNameChars ?? DEFAULTS.maxToolNameChars,
     maxResultBytes: config.maxResultBytes ?? DEFAULTS.maxResultBytes,
   }
-  if (resolved.deferTools !== 'all' && resolved.deferTools !== 'mcp') {
-    throw new Error('dsh-progressive-tools: deferTools must be all or mcp')
+  if ('deferTools' in config) {
+    throw new Error('dsh-progressive-tools: deferTools was removed; migrate to toolDisclosureRules')
   }
   for (const [key, value] of Object.entries(resolved)) {
-    if (key === 'eagerTools' || key === 'deferTools') continue
+    if (key === 'eagerTools' || key === 'toolDisclosureRules') continue
     if (!Number.isSafeInteger(value) || (value as number) < 1) {
       throw new Error(`dsh-progressive-tools: ${key} must be a positive safe integer`)
     }
@@ -136,13 +146,47 @@ function resolveConfig(config: Config): ResolvedConfig {
   return resolved
 }
 
-/** One scope's executable catalog, projected from ToolRuntime's authoritative view. */
-function catalog(ctx: Context, scope: ScopeKey | undefined, omitted: ReadonlySet<string>, deferTools: 'all' | 'mcp'): CatalogTool[] {
+/** Compile once at load; names need not exist yet. Globs support only * and ?. */
+function compileRules(rules: ToolDisclosureRule[]): ResolvedConfig['toolDisclosureRules'] {
+  if (!Array.isArray(rules)) throw new Error('toolDisclosureRules must be an ordered array')
+  return rules.map((rule, index) => {
+    const fail = () => new Error(
+      'toolDisclosureRules[' + String(index) + '] must have exactly one glob:string or regex:string and disclosure:eager|deferred',
+    )
+    if (rule === null || typeof rule !== 'object' || Array.isArray(rule)) throw fail()
+    const keys = Object.keys(rule)
+    const hasGlob = 'glob' in rule
+    if (hasGlob === ('regex' in rule) || keys.length !== 2
+      || (rule.disclosure !== 'eager' && rule.disclosure !== 'deferred')) throw fail()
+    const source = hasGlob ? rule.glob : rule.regex
+    if (typeof source !== 'string') throw fail()
+    // Escape all regex punctuation except the two supported glob wildcards.
+    const pattern = hasGlob
+      ? new RegExp('^(?:' + Array.from(source, char => char === '*' ? '[\\s\\S]*'
+        : char === '?' ? '[\\s\\S]' : char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('') + ')(?![\\s\\S])', 'u')
+      : new RegExp(source)
+    return { pattern, disclosure: rule.disclosure }
+  })
+}
+
+/** Shared classification for wire declarations, SDK, and all catalog paths. */
+function isDeferred(definition: ToolDefinition, config: ResolvedConfig): boolean {
+  if (DISCOVERY_NAMES.has(definition.name)) return false
+  for (let index = config.toolDisclosureRules.length - 1; index >= 0; index--) {
+    const rule = config.toolDisclosureRules[index]!
+    if (rule.pattern.test(definition.name)) return rule.disclosure === 'deferred'
+  }
+  if (config.eagerTools.includes(definition.name)) return false
+  // Own deferLoading:true is honored; the default also defers every remaining tool.
+  return true
+}
+
+/** One scope's deferred catalog, projected from ToolRuntime's authoritative view. */
+function catalog(ctx: Context, scope: ScopeKey | undefined, config: ResolvedConfig): CatalogTool[] {
   const result: CatalogTool[] = []
   for (const schema of ctx.tools.schemas(scope)) {
-    if (omitted.has(schema.name) || (deferTools === 'mcp' && !schema.name.startsWith('mcp__'))) continue
     const definition = ctx.tools.get(schema.name, scope)
-    if (definition === undefined) continue
+    if (definition === undefined || !isDeferred(definition, config)) continue
     result.push({
       name: schema.name,
       description: schema.description,
@@ -309,12 +353,15 @@ function compactAssembly(
   recordMode(scope, mode)
 
   const known = ctx.tools.schemas(scope).map(tool => tool.name)
-  const eagerTools = new Set(config.eagerTools)
-  if (config.deferTools === 'mcp') {
-    for (const toolName of known) {
-      if (!DISCOVERY_NAMES.has(toolName) && !toolName.startsWith('mcp__')) eagerTools.add(toolName)
+  for (const eagerName of config.eagerTools) {
+    if (ctx.tools.get(eagerName, scope) === undefined) {
+      throw new Error('dsh-progressive-tools: eager tool ' + JSON.stringify(eagerName) + ' is not visible in this scope')
     }
   }
+  const eagerTools = new Set(known.filter(toolName => {
+    const definition = ctx.tools.get(toolName, scope)
+    return definition !== undefined && !DISCOVERY_NAMES.has(toolName) && !isDeferred(definition, config)
+  }))
   const schemas = discoveryDefinitions.map((expected) => {
     const current = ctx.tools.get(expected.name, scope)
     if (current !== expected) {
@@ -329,12 +376,7 @@ function compactAssembly(
     }
   }
   for (const eagerName of eagerTools) {
-    const definition = ctx.tools.get(eagerName, scope)
-    if (definition === undefined || eagerName === RUN_CODE_NAME) {
-      throw new Error('dsh-progressive-tools: eager tool ' + JSON.stringify(eagerName)
-        + ' is not visible in this scope; visible tools: ' + (known.sort().join(', ') || '(none)'))
-    }
-    schemas.push(sdkSchema(definition))
+    schemas.push(sdkSchema(ctx.tools.get(eagerName, scope)!))
   }
 
   const directNames = new Set<string>()
@@ -344,7 +386,11 @@ function compactAssembly(
   }
   if (mode === 'native') directNames.add(INVOKE_TOOL_NAME)
   if (mode !== 'native') directNames.add(RUN_CODE_NAME)
-  const tools = assembly.tools.filter(tool => directNames.has(tool.name))
+  const tools = assembly.tools.filter(tool => directNames.has(tool.name)).map(tool => {
+    if (!eagerTools.has(tool.name)) return tool
+    const { deferLoading: _deferLoading, ...eager } = tool
+    return eager
+  })
 
   const instructions = discoveryInstructions(mode)
   let sections = assembly.sections.filter(section => section.name !== DISCOVERY_SECTION)
@@ -362,7 +408,6 @@ function compactAssembly(
 /** Register discovery tools and the all-mode stable presentation projection. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
-  const omitted = new Set([...DISCOVERY_NAMES, ...resolved.eagerTools])
   const presentationModes = new WeakMap<object, PresentationMode>()
   const modeFor = (agent: object | undefined, nested: boolean): PresentationMode =>
     agent === undefined ? nested ? 'ptc' : 'native' : presentationModes.get(agent) ?? (nested ? 'ptc' : 'native')
@@ -403,7 +448,7 @@ export function apply(ctx: Context, config: Config): void {
       if (args.limit !== undefined && (!Number.isSafeInteger(args.limit) || args.limit < 1)) {
         throw new Error('search_tools limit must be a positive safe integer')
       }
-      const tools = catalog(ctx, exec.agent, omitted, resolved.deferTools)
+      const tools = catalog(ctx, exec.agent, resolved)
       const catalogMatches: SearchMatch[] = tools.map(tool => ({
         name: tool.name,
         description: summarize(tool.description, resolved.maxSummaryChars),
@@ -474,7 +519,7 @@ export function apply(ctx: Context, config: Config): void {
         }
       }
       const names = [...new Set(args.names)]
-      const tools = catalog(ctx, exec.agent, omitted, resolved.deferTools)
+      const tools = catalog(ctx, exec.agent, resolved)
       const byName = new Map(tools.map(tool => [tool.name, tool]))
       const unknown = names.filter(toolName => !byName.has(toolName))
       if (unknown.length > 0) {
@@ -524,7 +569,7 @@ export function apply(ctx: Context, config: Config): void {
       if (graphemes(args.name).length > resolved.maxToolNameChars) {
         throw new Error(`invoke_tool name exceeds the configured ${String(resolved.maxToolNameChars)}-character limit`)
       }
-      const available = new Set(catalog(ctx, exec.agent, omitted, resolved.deferTools).map(tool => tool.name))
+      const available = new Set(catalog(ctx, exec.agent, resolved).map(tool => tool.name))
       if (!available.has(args.name)) {
         throw new Error(`invoke_tool received unknown or unavailable tool ${JSON.stringify(args.name)}`)
       }

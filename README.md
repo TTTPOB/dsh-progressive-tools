@@ -16,6 +16,7 @@ Follow [`INSTALL.md`](INSTALL.md) to install this package with official DSH 0.2.
 ```yaml
 - id: progressive-tools
   config:
+    toolDisclosureRules: []
     eagerTools: []
     maxSearchResults: 10
     maxDescribeTools: 10
@@ -27,11 +28,31 @@ Follow [`INSTALL.md`](INSTALL.md) to install this package with official DSH 0.2.
 
 The configuration block above shows the defaults and is an optional override of the shared row in `$DSH_HOME/cordis.patch.yml`; do not activate the package bundle alongside that row. `eagerTools` contains exact, genuinely stable tools that remain declared directly. Unknown eager names fail assembly. Every count, grapheme, and rendered UTF-8 result limit is enforced before a successful discovery result returns.
 
-## MCP-only disclosure
+## Disclosure rules
 
-Set `deferTools: mcp` in the configuration block above to defer only tools named `mcp__<server>__<tool>`, the namespace used by DSH's MCP client. All other visible tools are declared immediately in Native and in the Code SDK, including tools registered after the first assembly. `eagerTools` can additionally expose selected MCP tools. Search, describe, and fallback invocation cover only deferred tools; already declared tools can be called directly without discovery.
+`toolDisclosureRules` is an ordered array. Each rule has exactly one `glob: string` or `regex: string`, plus `disclosure: eager | deferred`; extra rule fields are rejected. Rules match the case-sensitive tool name, not its description. The **last matching rule wins**, with no special priority for exact names.
 
-The default `deferTools: all` preserves discovery for every tool outside `eagerTools`. With `mcp`, the eager set also includes all ordinary tools in the current scope. MCP catalog changes leave the prefix stable; ordinary tool registration or removal changes the declarations. Each assembly and discovery call uses its own scope's current registry.
+```yaml
+    toolDisclosureRules:
+      - glob: "*"
+        disclosure: eager
+      - glob: "mcp__*"
+        disclosure: deferred
+      - glob: "mcp__weather__forecast"
+        disclosure: eager
+      - regex: "^(write|delete)_"
+        disclosure: deferred
+```
+
+This example declares ordinary tools immediately, defers MCP tools except the exact weather tool, and defers names starting with `write_` or `delete_`. A later broad rule can override an earlier exact rule.
+
+- **Glob:** matches the whole tool name; `*` matches zero or more characters, `?` matches one Unicode character. All other characters are literal, including brackets, braces, slash and backslash. There are no character classes, brace expansion, path semantics, or escaping; use regex for richer patterns. A glob without wildcards is an exact name.
+- **Regex:** JavaScript `new RegExp(source)` syntax, without `/pattern/` delimiters or flags. Matching is unanchored unless you add `^` and `$`. Invalid regex and malformed rules fail at configuration load (also for direct `apply` callers).
+- **Precedence:** matching rule → legacy `eagerTools` → tool's own `deferLoading: true` → default deferred. With no rules, all non-eager tools remain deferred. Explicit eager rules and `eagerTools` override a tool's own defer marker; a deferred rule overrides `eagerTools`. Unknown legacy eager names still fail assembly, even when a rule would defer them.
+- **Control tools:** rules are ignored for `search_tools`, `describe_tools`, `invoke_tool` and `run_code`, including exact matches. They retain their mode/capability-specific presentation; rules cannot hide or force-expose them.
+- **Live scopes:** rules may name tools not yet registered. Each assembly and search/describe/invoke call classifies the current scoped registry using the same policy. Eager names appear in Native declarations or the Code SDK; only deferred names enter discovery/fallback invocation. Eager registration/removal changes the prefix; deferred catalog changes do not.
+
+**Migration:** `deferTools` has been removed; any configuration containing it fails with a migration error. Remove `deferTools: all` to retain the default. Replace `deferTools: mcp` with the first two rules above. If you previously used `eagerTools` for MCP exceptions, add exact eager rules **after** the MCP deferred rule, because matching rules now override that legacy list. Broad eager rules also override tools' own defer markers; add deferred exceptions where needed. Update your configuration explicitly; this package does not migrate installations.
 
 ## Stable mode surfaces
 
@@ -80,7 +101,7 @@ The wire remains `run_code`; its compact SDK contains only `search_tools`, `desc
 
 ### Token and KV-cache effect
 
-The stable prefix scales with discovery declarations, the fixed fallback, and `eagerTools`, not the complete visible catalog. Native APIs append disclosed schemas at the historical describe result rather than replacing the top-level tool array, so the cached prefix remains stable. Registering or unregistering a non-eager tool changes only later discovery results. This directly addresses dynamic-tool prefix invalidation such as [deepseek-harness discussion #935](https://github.com/deepseek-ai/deepseek-harness/discussions/935).
+The prefix scales with discovery declarations, the fixed fallback, and the effective eager set, not the complete visible catalog. Native APIs append disclosed schemas at the historical describe result rather than replacing the top-level tool array, so the cached prefix remains stable. Registering or unregistering a non-eager tool changes only later discovery results. This directly addresses dynamic-tool prefix invalidation such as [deepseek-harness discussion #935](https://github.com/deepseek-ai/deepseek-harness/discussions/935).
 
 ## Known limitations
 
