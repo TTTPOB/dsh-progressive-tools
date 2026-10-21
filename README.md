@@ -7,7 +7,7 @@ An automatically mounted, presentation-only progressive tool disclosure layer fo
 
 ## Release validation
 
-Use `pnpm prepare:release` followed by the existing validation steps in [Validate and release](.github/workflows/release.yml). The source tests use official DSH `0.2.1-rc.1`; the native protocol tests also use pi-ai `1.1.0` transcript replay. No external fork is required for this package's tests. `pnpm release:pack && pnpm verify:consumer` checks the packed exports and real Loader activation through the official Host package resolver, with profile-local plugins and Host-shared peers (`autoInstallPeers: false`). The fixture does not launch a Host.
+Use `pnpm prepare:release` followed by the existing validation steps in [Validate and release](.github/workflows/release.yml). The source tests use official DSH `0.2.1-rc.1`; the native protocol tests also use pi-ai `1.1.0` transcript replay. PTC native-exception tests require the matching core ToolRuntime API. `pnpm release:pack && pnpm verify:consumer` checks the packed exports and real Loader activation through the official Host package resolver, with profile-local plugins and Host-shared peers (`autoInstallPeers: false`). The fixture does not launch a Host.
 
 ## Installation and composition
 
@@ -60,7 +60,9 @@ This example declares ordinary tools immediately, defers MCP tools except the ex
 | --- | --- | --- |
 | Native, native deferred API | `search_tools`, `describe_tools`, eager tools | ordinary tool call with the returned exact name and arguments |
 | Native, other API | `search_tools`, `describe_tools`, `invoke_tool`, eager tools | `invoke_tool({ name, arguments })` |
-| Code | `run_code`; its SDK declares discovery and eager bindings | `tools[exactName](arguments)` inside a later `run_code` |
+| Code | `run_code` and core-configured native exceptions; its SDK declares discovery and eager bindings | `tools[exactName](arguments)` inside a later `run_code` |
+
+PTC native exceptions are selected by core `tools.ptcNativeTools` (default `[]`), not by disclosure rules. This plugin preserves visible exceptions through `ctx.tools.isNativeInPtc(name)` even when they are deferred. Their SDK calls remain available; restrictions and execution policy still apply. This requires a core ToolRuntime exposing that API.
 
 `invoke_tool` is a capability fallback, not a second Code transport. The plugin removes it at the pi-ai request boundary when the resolved model enables mid-conversation system messages and transcript-anchored tool additions. PTC already has `run_code`, so it never exposes `invoke_tool`.
 

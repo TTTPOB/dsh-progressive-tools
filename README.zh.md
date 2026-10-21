@@ -7,7 +7,7 @@
 
 ## 发布验证
 
-本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用官方 DSH `0.2.1-rc.1`；native 协议测试同时使用 pi-ai `1.1.0` 的 transcript 回放；本包测试不需要外部 fork。`pnpm release:pack && pnpm verify:consumer` 检查 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，profile 只安装插件并关闭自动 peers；不启动 Host。
+本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用官方 DSH `0.2.1-rc.1`；native 协议测试同时使用 pi-ai `1.1.0` 的 transcript 回放；PTC 原生例外测试需要配套的 core ToolRuntime API。`pnpm release:pack && pnpm verify:consumer` 检查 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，profile 只安装插件并关闭自动 peers；不启动 Host。
 
 ## 安装与组装
 
@@ -60,7 +60,9 @@
 | --- | --- | --- |
 | Native，原生延迟披露 API | `search_tools`、`describe_tools`、eager 工具 | 使用返回的精确名称与参数发起普通工具调用 |
 | Native，其他 API | `search_tools`、`describe_tools`、`invoke_tool`、eager 工具 | `invoke_tool({ name, arguments })` |
-| Code | 线路仅有 `run_code`，其 SDK 声明发现与 eager binding | 后续 `run_code` 中调用 `tools[exactName](arguments)` |
+| Code | `run_code` 与 core 配置的原生例外，SDK 声明发现与 eager binding | 后续 `run_code` 中调用 `tools[exactName](arguments)` |
+
+PTC 原生例外由 core 的 `tools.ptcNativeTools` 选择（默认 `[]`），不由披露规则选择。本插件通过 `ctx.tools.isNativeInPtc(name)` 保留可见例外，即使规则把它们设为 deferred。其 SDK 调用仍然可用；限制和执行策略照常生效。这需要提供该 API 的 core ToolRuntime。
 
 `invoke_tool` 是能力兜底，不是第二套 Code transport。若解析后的模型同时支持会话中途的 system message 与 transcript 工具增量，插件会在 pi-ai 请求边界移除它。PTC 已有 `run_code`，因此不会暴露 `invoke_tool`。
 

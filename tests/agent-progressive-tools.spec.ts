@@ -60,11 +60,11 @@ interface Mounted {
 }
 
 /** Build one host catalog and mount the plugin inside an agent scope. */
-async function mount(config: Config = {}, options: { language?: string; programFormat?: 'function-body' | 'repl'; mode?: 'native' | 'ptc'; runtime?: boolean } = {}): Promise<Mounted> {
+async function mount(config: Config = {}, options: { language?: string; programFormat?: 'function-body' | 'repl'; mode?: 'native' | 'ptc'; runtime?: boolean; ptcNativeTools?: string[] } = {}): Promise<Mounted> {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SystemPrompt, {})
-  await ctx.plugin(ToolRuntime, { mode: options.mode ?? 'native' })
+  await ctx.plugin(ToolRuntime, { mode: options.mode ?? 'native', ptcNativeTools: options.ptcNativeTools ?? [] })
   ctx.provide('workingDirectory', { ensure: async () => process.cwd() })
   if (options.runtime !== false) {
     await ctx.plugin(FakeRuntime, {
@@ -153,6 +153,24 @@ function directValue(result: Awaited<ReturnType<typeof direct>>) {
 }
 
 describe('dsh-progressive-tools', () => {
+  it('preserves core PTC native exceptions even when disclosure rules defer them', async () => {
+    const mounted = await mount({}, { mode: 'ptc', ptcNativeTools: ['read_file', 'missing'] })
+    try {
+      const assembly = await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent })
+      expect(assembly.tools.map(tool => tool.name)).toEqual(['read_file', RUN_CODE_NAME])
+      expect(directValue(await direct(mounted, 'read_file', { path: 'native.txt' }))).toEqual({ text: 'read:native.txt' })
+      expect((await direct(mounted, 'write_file', { path: 'x', text: 'x' })).error?.info?.code).toBe('UNKNOWN_TOOL')
+      expect(valueOf(await nested(mounted, 'read_file', { path: 'nested.txt' }))).toEqual({ text: 'read:nested.txt' })
+
+      mounted.scope.ctx.tools.restrict({ deny: ['read_file'] })
+      const restricted = await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent })
+      expect(restricted.tools.map(tool => tool.name)).toEqual([RUN_CODE_NAME])
+      expect((await direct(mounted, 'read_file', { path: 'hidden.txt' })).error?.info?.code).toBe('UNKNOWN_TOOL')
+    } finally {
+      await mounted.ctx.fiber.dispose()
+    }
+  })
+
   it('validates ordered rules at schema load and direct apply', () => {
     const invalid = [null, {}, 'read_file', [null], [{}],
       [{ glob: '*', regex: '.*', disclosure: 'eager' }],

@@ -385,7 +385,12 @@ function compactAssembly(
     for (const eagerName of eagerTools) directNames.add(eagerName)
   }
   if (mode === 'native') directNames.add(INVOKE_TOOL_NAME)
-  if (mode !== 'native') directNames.add(RUN_CODE_NAME)
+  if (mode !== 'native') {
+    directNames.add(RUN_CODE_NAME)
+    for (const tool of assembly.tools) {
+      if (ctx.tools.isNativeInPtc(tool.name)) directNames.add(tool.name)
+    }
+  }
   const tools = assembly.tools.filter(tool => directNames.has(tool.name)).map(tool => {
     if (!eagerTools.has(tool.name)) return tool
     const { deferLoading: _deferLoading, ...eager } = tool

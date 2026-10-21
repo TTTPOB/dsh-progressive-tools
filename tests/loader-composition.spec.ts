@@ -33,6 +33,7 @@ interface FixtureState {
   hidden: unknown
   hasRunCode: boolean
   nativeWire: string[]
+  nativeException: unknown
 }
 let state: FixtureState | undefined
 
@@ -100,6 +101,10 @@ const FixturePlugin = {
       hidden: await hidden.execute({ city: 'Paris' }, runContext(ToolCallId('hidden'), 'fixture_weather', { city: 'Paris' })),
       hasRunCode: ctx.tools.get(RUN_CODE_NAME, agent) !== undefined,
       nativeWire: native.assembly.tools.map(tool => tool.name),
+      nativeException: await ctx.tools.execute({
+        callId: ToolCallId('native-exception'), name: 'fixture_write',
+        arguments: { text: 'exception' }, agent, signal: new AbortController().signal,
+      }),
     }
   },
 }
@@ -113,7 +118,11 @@ afterEach(async () => {
 })
 
 describe('dsh-progressive-tools real Loader composition', () => {
-  it.each(['all', 'mcp'] as const)('loads independently with %s disclosure in Native and PTC', async (selection) => {
+  it.each([
+    { selection: 'all', ptcNativeTools: [] },
+    { selection: 'mcp', ptcNativeTools: [] },
+    { selection: 'all', ptcNativeTools: ['fixture_write'] },
+  ])('loads independently with $selection disclosure and PTC exceptions $ptcNativeTools', async ({ selection, ptcNativeTools }) => {
     root = await mkdtemp(join(tmpdir(), 'dsh-progressive-tools-loader-'))
     const configPath = join(root, 'cordis.yml')
     const parsed = yaml.load(
@@ -130,7 +139,7 @@ describe('dsh-progressive-tools real Loader composition', () => {
     await writeFile(configPath, yaml.dump([
       { id: 'system-prompt', name: 'test-system-prompt' },
       { id: 'llm', name: 'test-llm' },
-      { id: 'tools', name: 'test-tools', config: { mode: 'native' } },
+      { id: 'tools', name: 'test-tools', config: { mode: 'native', ptcNativeTools } },
       ...bundleRows.map(row => ({ ...row, config: { maxSearchResults: 1, toolDisclosureRules: selection === 'mcp' ? [{ glob: '*', disclosure: 'eager' }, { glob: 'mcp__*', disclosure: 'deferred' }] : [] } })),
       { id: 'fixture', name: 'test-fixture' },
     ], { schema: entryListSchema, noRefs: true }))
@@ -158,7 +167,10 @@ describe('dsh-progressive-tools real Loader composition', () => {
     await ctx.loader.await()
 
     expect(state).toBeDefined()
-    expect(state?.wire).toEqual([RUN_CODE_NAME])
+    expect(state?.wire).toEqual([...ptcNativeTools, RUN_CODE_NAME])
+    expect(state?.nativeException).toMatchObject(ptcNativeTools.length > 0
+      ? { isError: false, value: true }
+      : { isError: true, error: { info: { code: 'UNKNOWN_TOOL' } } })
     expect(state?.sdk).toContain(Discovery.SEARCH_TOOLS_NAME)
     expect(state?.sdk).toContain(Discovery.DESCRIBE_TOOLS_NAME)
     const ordinary = selection === 'mcp' ? ['fixture_weather', 'fixture_write'] : []
