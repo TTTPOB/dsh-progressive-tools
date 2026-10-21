@@ -1,7 +1,7 @@
 {
   "name": "dsh-progressive-tools",
   "description": "Standalone direct-first progressive tool disclosure for every DeepSeek Harness presentation mode",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "type": "module",
   "packageManager": "pnpm@11.28.5",
   "main": "lib/index.js",
@@ -64,7 +64,7 @@
     "@deepseek-ai/dsh-llm": "^0.2.1-rc.1",
     "@deepseek-ai/dsh-scope": "^0.2.1-rc.1",
     "@deepseek-ai/dsh-system-prompt": "^0.2.1-rc.1",
-    "@deepseek-ai/dsh-tools": "^0.2.1-rc.1",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.1-fork1",
     "@deepseek-ai/dsh-util-values": "^0.2.1-rc.1"
   },
   "devDependencies": {
@@ -77,7 +77,7 @@
     "@deepseek-ai/dsh-scope": "0.2.1-rc.1",
     "@deepseek-ai/dsh-session": "0.2.1-rc.1",
     "@deepseek-ai/dsh-system-prompt": "0.2.1-rc.1",
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.1",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.1-fork1",
     "@deepseek-ai/dsh-user-approval": "0.2.1-rc.1",
     "@deepseek-ai/dsh-util-values": "0.2.1-rc.1",
     "@types/js-yaml": "^4.0.9",

@@ -1,4 +1,9 @@
 {
   "baseline": "0.2.1-rc.1",
-  "dependencies": {}
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": {
+      "version": "0.2.1-rc.1-fork1",
+      "source": "https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.2.1-rc.1-fork6/deepseek-ai-dsh-tools-0.2.1-rc.1-fork1.tgz"
+    }
+  }
 }

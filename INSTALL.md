@@ -1,10 +1,10 @@
 # Installation
 
-This package targets official DeepSeek Harness 0.2.1-rc.1. It mounts progressive tool disclosure once on the host plane for every Agent preset; it does not replace the PTC runtime or patch Harness source.
+This package targets DeepSeek Harness 0.2.1-rc.1 with `@deepseek-ai/dsh-tools@0.2.1-rc.1-fork1`, which provides `ToolRuntime.isNativeInPtc`. Install that tools fork through the Host installation’s package overrides before using this plugin; official tools 0.2.1-rc.1 lacks the required API. It mounts progressive tool disclosure once on the host plane for every Agent preset; it does not replace the PTC runtime or patch Harness source.
 
 ## Install as a shared plugin
 
-Install `dsh-progressive-tools@0.5.0` as an ordinary dependency in the profile that resolves these plugins (`autoInstallPeers: false`). Declare its shared plugin row once in `$DSH_HOME/cordis.patch.yml`:
+Install `dsh-progressive-tools@0.5.1` as an ordinary dependency in the profile that resolves these plugins (`autoInstallPeers: false`). Declare its shared plugin row once in `$DSH_HOME/cordis.patch.yml`:
 
 ```yaml
 - insert:

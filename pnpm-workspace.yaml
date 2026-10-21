@@ -1,4 +1,7 @@
 verifyDepsBeforeRun: false
+blockExoticSubdeps: false
+overrides:
+  "@deepseek-ai/dsh-tools": "https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.2.1-rc.1-fork6/deepseek-ai-dsh-tools-0.2.1-rc.1-fork1.tgz"
 allowBuilds:
   esbuild: true
   '@google/genai': false

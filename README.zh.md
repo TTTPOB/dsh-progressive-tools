@@ -7,11 +7,11 @@
 
 ## 发布验证
 
-本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用官方 DSH `0.2.1-rc.1`；native 协议测试同时使用 pi-ai `1.1.0` 的 transcript 回放；PTC 原生例外测试需要配套的 core ToolRuntime API。`pnpm release:pack && pnpm verify:consumer` 检查 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，profile 只安装插件并关闭自动 peers；不启动 Host。
+本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用 DSH `0.2.1-rc.1` 和 `@deepseek-ai/dsh-tools@0.2.1-rc.1-fork1`；native 协议测试同时使用 pi-ai `1.1.0` 的 transcript 回放；PTC 原生例外测试需要配套的 core ToolRuntime API。`pnpm release:pack && pnpm verify:consumer` 检查 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，profile 只安装插件并关闭自动 peers；不启动 Host。
 
 ## 安装与组装
 
-按照 [`INSTALL.md`](INSTALL.md) 将此包与官方 DSH 0.2.1-rc.1 组合。通过正常 profile dependencies 安装（`autoInstallPeers: false`），并由 `$DSH_HOME/cordis.patch.yml` 的共用插件行在 host plane 挂载一次，再由 ToolRuntime 与 SystemPrompt 的作用域视图将它传递给所有已有和未来的 Agent preset。无需复制、编辑或选择额外 preset。插件固定依赖 `tools`、`systemPrompt` 与 `llm`；只有 Agent 实际呈现 Code Mode 时才需要 `ptcRuntime`。它不会修改 Harness checkout。
+按照 [`INSTALL.md`](INSTALL.md) 将此包与 DSH 0.2.1-rc.1 及 peer 声明指定的精确 tools fork 组合。通过正常 profile dependencies 安装（`autoInstallPeers: false`），并由 `$DSH_HOME/cordis.patch.yml` 的共用插件行在 host plane 挂载一次，再由 ToolRuntime 与 SystemPrompt 的作用域视图将它传递给所有已有和未来的 Agent preset。无需复制、编辑或选择额外 preset。插件固定依赖 `tools`、`systemPrompt` 与 `llm`；只有 Agent 实际呈现 Code Mode 时才需要 `ptcRuntime`。它不会修改 Harness checkout。
 
 ```yaml
 - id: progressive-tools

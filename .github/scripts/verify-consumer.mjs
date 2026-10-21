@@ -35,7 +35,7 @@ if (pkg.name === 'dsh-workspace-envrc') profileDependencies['dsh-workspace-overl
 writeFileSync(join(host, 'package.json'), JSON.stringify({ name: 'release-host-fixture', private: true, type: 'module', dependencies: hostDependencies }, null, 2) + '\n')
 writeFileSync(join(profile, 'package.json'), JSON.stringify({ name: 'release-profile-fixture', private: true, type: 'module', dependencies: profileDependencies, dsh: { profile: { bundles: pkg.name === 'dsh-workspace-envrc' ? ['dsh-workspace-overlay', pkg.name] : [pkg.name] } } }, null, 2) + '\n')
 for (const dir of [host, profile]) {
-  writeFileSync(join(dir, 'pnpm-workspace.yaml'), JSON.stringify({ autoInstallPeers: dir === host, verifyDepsBeforeRun: false, overrides, allowBuilds: { esbuild: true } }, null, 2) + '\n')
+  writeFileSync(join(dir, 'pnpm-workspace.yaml'), JSON.stringify({ autoInstallPeers: dir === host, verifyDepsBeforeRun: false, blockExoticSubdeps: false, overrides, allowBuilds: { esbuild: true } }, null, 2) + '\n')
   execFileSync('pnpm', ['install', '--ignore-scripts'], { cwd: dir, stdio: 'inherit' })
 }
 const runner = `
@@ -56,7 +56,7 @@ assert(!Object.keys(profileManifest.dependencies).some(name => name.startsWith('
 const identities = pkgName === 'dsh-workspace-envrc' ? ['dsh-workspace-overlay@0.2.0', pkgName + '@' + pkgVersion] : [pkgName + '@' + pkgVersion]
 for (const identity of identities) await setProfileVersionExemption(profileDir, identity, '0.2.1-rc.1', false, false)
 let profile = loadProfileDirectory('release-smoke', profileDir, anchor)
-if (pkgName !== 'dsh-progressive-tools') {
+{
   assert.equal(profile.skippedBundles.length, identities.length, 'Fork-only peers must fail official Host admission without informed consent')
   for (const identity of identities) await setProfileVersionExemption(profileDir, identity, '0.2.1-rc.1', true, true)
   profile = loadProfileDirectory('release-smoke', profileDir, anchor)

@@ -7,11 +7,11 @@ An automatically mounted, presentation-only progressive tool disclosure layer fo
 
 ## Release validation
 
-Use `pnpm prepare:release` followed by the existing validation steps in [Validate and release](.github/workflows/release.yml). The source tests use official DSH `0.2.1-rc.1`; the native protocol tests also use pi-ai `1.1.0` transcript replay. PTC native-exception tests require the matching core ToolRuntime API. `pnpm release:pack && pnpm verify:consumer` checks the packed exports and real Loader activation through the official Host package resolver, with profile-local plugins and Host-shared peers (`autoInstallPeers: false`). The fixture does not launch a Host.
+Use `pnpm prepare:release` followed by the existing validation steps in [Validate and release](.github/workflows/release.yml). The source tests use DSH `0.2.1-rc.1` with `@deepseek-ai/dsh-tools@0.2.1-rc.1-fork1`; the native protocol tests also use pi-ai `1.1.0` transcript replay. PTC native-exception tests require the matching core ToolRuntime API. `pnpm release:pack && pnpm verify:consumer` checks the packed exports and real Loader activation through the official Host package resolver, with profile-local plugins and Host-shared peers (`autoInstallPeers: false`). The fixture does not launch a Host.
 
 ## Installation and composition
 
-Follow [`INSTALL.md`](INSTALL.md) to install this package with official DSH 0.2.1-rc.1. An ordinary profile dependency (`autoInstallPeers: false`) and one row in `$DSH_HOME/cordis.patch.yml` mount the plugin once on the host plane, whose scoped ToolRuntime and SystemPrompt views carry it into every existing and future Agent preset. No preset copy, preset edit, or preset selection is required. The plugin requires `tools`, `systemPrompt`, and `llm`; `ptcRuntime` is required only when an agent actually presents Code Mode. It never patches the Harness checkout.
+Follow [`INSTALL.md`](INSTALL.md) to install this package with DSH 0.2.1-rc.1 and the exact tools fork declared in its peers. An ordinary profile dependency (`autoInstallPeers: false`) and one row in `$DSH_HOME/cordis.patch.yml` mount the plugin once on the host plane, whose scoped ToolRuntime and SystemPrompt views carry it into every existing and future Agent preset. No preset copy, preset edit, or preset selection is required. The plugin requires `tools`, `systemPrompt`, and `llm`; `ptcRuntime` is required only when an agent actually presents Code Mode. It never patches the Harness checkout.
 
 ```yaml
 - id: progressive-tools

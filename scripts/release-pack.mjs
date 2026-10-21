@@ -45,7 +45,7 @@ writeFileSync(join(destination, 'release-notes.md'), [
   '',
   'Breaking configuration migration: deferTools has been removed and now fails at load. Remove deferTools: all; replace deferTools: mcp with ordered rules [{ glob: "*", disclosure: "eager" }, { glob: "mcp__*", disclosure: "deferred" }]. Add exact eager MCP exceptions after these rules; rules override legacy eagerTools and tool deferLoading markers. See README for full semantics.',
   '',
-  'Validated against official DSH service packages 0.2.1-rc.1 and Cordis 4.0.5.',
+  'Requires @deepseek-ai/dsh-tools 0.2.1-rc.1-fork1 for the PTC native exception API; remaining DSH services use 0.2.1-rc.1 and Cordis 4.0.5.',
   '',
   'Install as an ordinary dependency of the resolving profile (autoInstallPeers: false). Declare the shared progressive-tools row in $DSH_HOME/cordis.patch.yml.',
   '',
