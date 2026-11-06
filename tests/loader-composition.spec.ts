@@ -16,13 +16,17 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolExecutionToken, ToolRunContext } from '@deepseek-ai/dsh-tools'
+import * as SourceNative from '../src/native.ts'
+import * as SourcePtc from '../src/ptc.ts'
 import * as SourceDiscovery from '../src/index.ts'
 
 const Discovery = process.env.DSH_EXAMPLE_MODE === 'lib'
   ? await import(/* @vite-ignore */ pathToFileURL(resolve('lib/index.js')).href)
   : SourceDiscovery
 
+const Native = process.env.DSH_EXAMPLE_MODE === 'lib' ? await import(/* @vite-ignore */ pathToFileURL(resolve('lib/native.js')).href) : SourceNative
+const Ptc = process.env.DSH_EXAMPLE_MODE === 'lib' ? await import(/* @vite-ignore */ pathToFileURL(resolve('lib/ptc.js')).href) : SourcePtc
+let ptcExceptions: string[] = []
 let root: string | undefined
 let context: Context | undefined
 
@@ -72,39 +76,31 @@ const FixturePlugin = {
       const session = Session.create(SessionId(id))
       const agent = { id: session.id, session } as unknown as Agent
       const scoped = createScope(ctx, agent)
-      scoped.ctx.tools.presentAs(mode)
+      Object.assign(agent, { ctx: scoped.ctx })
+      await scoped.ctx.plugin(mode === 'native' ? Native : Ptc, { ptcNativeTools: ptcExceptions })
       return { agent, assembly: await ctx.systemPrompt.assemble({ scope: agent }) }
     }
     const code = await mountMode('loader-discovery-code', 'ptc')
     const native = await mountMode('loader-discovery-native', 'native')
     const agent = code.agent
 
-    const runContext = (callId: ToolCallId, toolName: string, args: unknown): ToolRunContext => ({
-      token: Symbol('fixture') as ToolExecutionToken,
-      callId,
-      rootCallId: callId,
-      name: toolName,
-      arguments: args,
-      agent,
-      signal: new AbortController().signal,
-      deferContext: () => {},
-      concludeTurn: () => {},
-    })
+    const call = async (name: string, args: unknown, owner = native.agent) => {
+      const batch = await ctx.tools.execute({ calls: [{ type: 'tool-call', id: ToolCallId('fixture-' + name), name, arguments: JSON.stringify(args) }],
+        agent: owner, signal: new AbortController().signal })
+      return batch.results[0]!.result
+    }
+    const search = await call(Discovery.SEARCH_TOOLS_NAME, { query: '*' })
+    const hidden = await call('fixture_weather', { city: 'Paris' })
+    if (search.isError || hidden.isError) throw new Error('fixture tools failed')
     const assembly = code.assembly
-    const search = ctx.tools.get(Discovery.SEARCH_TOOLS_NAME, agent)
-    const hidden = ctx.tools.get('fixture_weather', agent)
-    if (search === undefined || hidden === undefined) throw new Error('fixture tools missing')
     state = {
       wire: assembly.tools.map(tool => tool.name),
       sdk: assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? '',
-      search: await search.execute({ query: '*' }, runContext(ToolCallId('search'), Discovery.SEARCH_TOOLS_NAME, { query: '*' })),
-      hidden: await hidden.execute({ city: 'Paris' }, runContext(ToolCallId('hidden'), 'fixture_weather', { city: 'Paris' })),
-      hasRunCode: ctx.tools.get(RUN_CODE_NAME, agent) !== undefined,
+      search: search.value,
+      hidden: hidden.value,
+      hasRunCode: assembly.tools.some(tool => tool.name === RUN_CODE_NAME),
       nativeWire: native.assembly.tools.map(tool => tool.name),
-      nativeException: await ctx.tools.execute({
-        callId: ToolCallId('native-exception'), name: 'fixture_write',
-        arguments: { text: 'exception' }, agent, signal: new AbortController().signal,
-      }),
+      nativeException: await call('fixture_write', { text: 'exception' }, agent),
     }
   },
 }
@@ -121,8 +117,9 @@ describe('dsh-progressive-tools real Loader composition', () => {
   it.each([
     { selection: 'all', ptcNativeTools: [] },
     { selection: 'mcp', ptcNativeTools: [] },
-    { selection: 'all', ptcNativeTools: ['fixture_write'] },
+    ...process.env.DSH_FORK_PTC_NATIVE === '1' ? [{ selection: 'all', ptcNativeTools: ['fixture_write'] }] : [],
   ])('loads independently with $selection disclosure and PTC exceptions $ptcNativeTools', async ({ selection, ptcNativeTools }) => {
+    ptcExceptions = ptcNativeTools
     root = await mkdtemp(join(tmpdir(), 'dsh-progressive-tools-loader-'))
     const configPath = join(root, 'cordis.yml')
     const parsed = yaml.load(
@@ -139,7 +136,7 @@ describe('dsh-progressive-tools real Loader composition', () => {
     await writeFile(configPath, yaml.dump([
       { id: 'system-prompt', name: 'test-system-prompt' },
       { id: 'llm', name: 'test-llm' },
-      { id: 'tools', name: 'test-tools', config: { mode: 'native', ptcNativeTools } },
+      { id: 'tools', name: 'test-tools' },
       ...bundleRows.map(row => ({ ...row, config: { maxSearchResults: 1, toolDisclosureRules: selection === 'mcp' ? [{ glob: '*', disclosure: 'eager' }, { glob: 'mcp__*', disclosure: 'deferred' }] : [] } })),
       { id: 'fixture', name: 'test-fixture' },
     ], { schema: entryListSchema, noRefs: true }))

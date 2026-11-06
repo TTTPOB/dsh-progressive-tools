@@ -4,7 +4,7 @@
 
 ## 挂载与配置
 
-- 在 host plane 挂载**一次**，由 ToolRuntime 与 SystemPrompt 的作用域视图传递给所有已有和未来的 preset。不需要复制、编辑或选择额外 preset。组合方式见 [INSTALL.md](INSTALL.md)。
+- 主插件在 host plane 挂载**一次**；每个 preset 将上游 executor 行替换为 `dsh-progressive-tools/native` 或 `/ptc`，同作用域不能同时选择两个 executor。组合方式见 [INSTALL.md](INSTALL.md)。
 - 固定依赖 `tools`、`systemPrompt`、`llm`；只有 Agent 实际呈现 Code Mode 时才需要 `ptcRuntime`。
 - **不要同时激活自带 bundle patch**，否则重复插入行。
 - `eagerTools` 只放真正稳定、需要直接声明的精确工具名。**未知 eager 名称会让 assembly 失败。**
@@ -14,7 +14,7 @@
 ## 权威与边界
 
 - **呈现不是授权。** 已知精确名称的调用方可以尝试调用；ToolRuntime 的可见性、policy、approval、guard 与调度仍是最终权威。
-- 协议不维护可变 reveal 集合：搜索不解锁能力，完整实时目录仍是执行权威。每次请求都从已记录的 `describe_tools` 调用/结果对重建 Native 披露。
+- 协议不维护可变 reveal 集合：搜索不解锁能力。每次请求从已记录的 `describe_tools` 调用/结果对重建 Native 披露，只能使用本步 admission 允许的定义；发现和嵌套调用必须透传 `toolSet`。
 - 每个作用域**假定只有一个协作式呈现所有者**；两个都改写最终工具表面的插件没有合并契约。
 
 ## 已知限制

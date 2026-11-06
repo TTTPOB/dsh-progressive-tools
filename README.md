@@ -2,16 +2,16 @@
 
 English | [中文](README.zh.md)
 
-An automatically mounted, presentation-only progressive tool disclosure layer for every DeepSeek Harness Agent preset in Native and PTC (Code) modes. It keeps the model-visible tool prefix stable while the live ToolRuntime catalog may register, unregister, restrict, or shadow non-eager tools.
+A presentation-only progressive tool disclosure layer for DeepSeek Harness Native and PTC (Code) executors. It keeps the model-visible tool prefix stable while the admitted ToolRuntime catalog may register, unregister, restrict, or shadow non-eager tools.
 
 
 ## Release validation
 
-Use `pnpm prepare:release` followed by the existing validation steps in [Validate and release](.github/workflows/release.yml). The source tests use DSH `0.2.1-rc.1` with `@deepseek-ai/dsh-tools@0.2.1-rc.1-fork1`; the native protocol tests also use pi-ai `1.1.0` transcript replay. PTC native-exception tests require the matching core ToolRuntime API. `pnpm release:pack && pnpm verify:consumer` checks the packed exports and real Loader activation through the official Host package resolver, with profile-local plugins and Host-shared peers (`autoInstallPeers: false`). The fixture does not launch a Host.
+Use `pnpm prepare:release` followed by [Validate and release](.github/workflows/release.yml). Source tests use official DSH `0.2.2-rc.1` and Cordis `4.1.0`; native protocol tests use pi-ai transcript replay. After installing a matching fork PTC executor, run `DSH_FORK_PTC_NATIVE=1 pnpm test` to enable native-exception coverage. These tests are retained but skipped against official packages, which do not implement `ptcNativeTools`. `pnpm release:pack && pnpm verify:consumer` checks packed exports, Host-shared peer resolution and real Loader activation without launching a Host.
 
 ## Installation and composition
 
-Follow [`INSTALL.md`](INSTALL.md) to install this package with DSH 0.2.1-rc.1 and the exact tools fork declared in its peers. An ordinary profile dependency (`autoInstallPeers: false`) and one row in `$DSH_HOME/cordis.patch.yml` mount the plugin once on the host plane, whose scoped ToolRuntime and SystemPrompt views carry it into every existing and future Agent preset. No preset copy, preset edit, or preset selection is required. The plugin requires `tools`, `systemPrompt`, and `llm`; `ptcRuntime` is required only when an agent actually presents Code Mode. It never patches the Harness checkout.
+Follow [INSTALL.md](INSTALL.md) with Node >=24.9 and DSH 0.2.2-rc.1. Mount the main plugin once on the host plane to register discovery tools and shared disclosure configuration. In **each Agent preset**, replace the upstream executor row with `dsh-progressive-tools/native` or `dsh-progressive-tools/ptc`; the host row alone does not change presentation. Do not select both upstream and progressive executors in the same scope. The main plugin requires `tools`, `systemPrompt`, and `llm`; only the PTC executor requires `ptcRuntime`. It never patches the Harness checkout.
 
 ```yaml
 - id: progressive-tools
@@ -50,7 +50,7 @@ This example declares ordinary tools immediately, defers MCP tools except the ex
 - **Regex:** JavaScript `new RegExp(source)` syntax, without `/pattern/` delimiters or flags. Matching is unanchored unless you add `^` and `$`. Invalid regex and malformed rules fail at configuration load (also for direct `apply` callers).
 - **Precedence:** matching rule → legacy `eagerTools` → tool's own `deferLoading: true` → default deferred. With no rules, all non-eager tools remain deferred. Explicit eager rules and `eagerTools` override a tool's own defer marker; a deferred rule overrides `eagerTools`. Unknown legacy eager names still fail assembly, even when a rule would defer them.
 - **Control tools:** rules are ignored for `search_tools`, `describe_tools`, `invoke_tool` and `run_code`, including exact matches. They retain their mode/capability-specific presentation; rules cannot hide or force-expose them.
-- **Live scopes:** rules may name tools not yet registered. Each assembly and search/describe/invoke call classifies the current scoped registry using the same policy. Eager names appear in Native declarations or the Code SDK; only deferred names enter discovery/fallback invocation. Eager registration/removal changes the prefix; deferred catalog changes do not.
+- **Step scopes:** rules may name tools not yet registered. Executors filter only definitions supplied for the current step; discovery and nested calls retain that same `toolSet`. A `when: false` tool is neither declared, discoverable nor executable, even if an earlier describe result contains it. Eager registration/removal changes the prefix; deferred catalog changes do not.
 
 **Migration:** `deferTools` has been removed; any configuration containing it fails with a migration error. Remove `deferTools: all` to retain the default. Replace `deferTools: mcp` with the first two rules above. If you previously used `eagerTools` for MCP exceptions, add exact eager rules **after** the MCP deferred rule, because matching rules now override that legacy list. Broad eager rules also override tools' own defer markers; add deferred exceptions where needed. Update your configuration explicitly; this package does not migrate installations.
 
@@ -62,7 +62,7 @@ This example declares ordinary tools immediately, defers MCP tools except the ex
 | Native, other API | `search_tools`, `describe_tools`, `invoke_tool`, eager tools | `invoke_tool({ name, arguments })` |
 | Code | `run_code` and core-configured native exceptions; its SDK declares discovery and eager bindings | `tools[exactName](arguments)` inside a later `run_code` |
 
-PTC native exceptions are selected by core `tools.ptcNativeTools` (default `[]`), not by disclosure rules. This plugin preserves visible exceptions through `ctx.tools.isNativeInPtc(name)` even when they are deferred. Their SDK calls remain available; restrictions and execution policy still apply. This requires a core ToolRuntime exposing that API.
+PTC native exceptions are selected by the fork PTC executor’s `ptcNativeTools: string[]` configuration, not `tools` or disclosure rules. The progressive wrapper preserves every wire schema returned by that executor, including deferred native exceptions, and only compacts its SDK. Official DSH works without exceptions; enabling exceptions requires the matching fork `@deepseek-ai/dsh-tool-executor-ptc`. Native exceptions remain callable through the full SDK subject to step admission and execution policy.
 
 `invoke_tool` is a capability fallback, not a second Code transport. The plugin removes it at the pi-ai request boundary when the resolved model enables mid-conversation system messages and transcript-anchored tool additions. PTC already has `run_code`, so it never exposes `invoke_tool`.
 
@@ -73,9 +73,9 @@ PTC native exceptions are selected by core `tools.ptcNativeTools` (default `[]`)
 3. On a later model step, a natively capable API emits an ordinary tool call using that exact name and arguments. The plugin reconstructs successful `describe_tools` results from durable request history and injects their schemas at the matching tool-result position. A Native API without that capability calls the stable `invoke_tool({ name, arguments })` fallback. Code calls `tools[exactName](arguments)` from a later `run_code`.
 4. ToolRuntime resolves the current scoped registry at execution time. Existing visible tools run normally; removed, restricted, shadowed, or misspelled names return the current failure reason.
 
-Search and describe use `ctx.tools.schemas(exec.agent)` and `ctx.tools.get(name, exec.agent)` on every call. Search returns only `name` and `description` entries plus compact count metadata; describe returns exact schemas only for selected names. Neither result exposes internal catalog or presentation metadata.
+Search and describe project `ctx.tools.definitions(exec.agent, exec.toolSet)` and check `executable` with the same admission. Search returns only names and bounded descriptions plus count metadata; describe returns exact schemas only for selected names. Neither result exposes internal catalog or presentation metadata.
 
-The protocol keeps no mutable reveal set: search does not unlock a capability, and the complete runtime catalog remains the execution authority. Native disclosure is reconstructed from logged `describe_tools` call/result pairs on every request.
+The protocol keeps no mutable reveal set: search does not unlock a capability. Native disclosure is reconstructed from logged describe call/result pairs on every request, intersected with current-step definitions. Missing step metadata falls back to discovery/invocation rather than replaying unverified schemas.
 
 ### Native API injection
 

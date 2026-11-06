@@ -55,6 +55,7 @@ interface LlmRuntimeInternals {
 }
 
 interface DisclosureFrame {
+  available?: ReadonlyMap<string, ToolSchema>
   loads: ReadonlyMap<string, readonly PiTool[]>
   progressiveSurface: boolean
 }
@@ -95,11 +96,20 @@ function isToolSchema(value: unknown): value is ToolSchema {
     && !Array.isArray(record['parameters'])
 }
 
+/** Reuse logged schemas only while the current step admits that exact input definition. */
+function isCurrentDisclosure(tool: PiTool, available: ReadonlyMap<string, ToolSchema> | undefined): boolean {
+  if (available === undefined) return true
+  const current = available.get(tool.name)
+  return current !== undefined && current.description === tool.description
+    && JSON.stringify(current.parameters) === JSON.stringify(tool.parameters)
+}
+
 /** Recover exact disclosures from the durable describe_tools call/result pairs. */
 function disclosureFrame(
   options: GenerateOptions,
   describeToolName: string,
   progressiveNames: ReadonlySet<string>,
+  available?: ReadonlyMap<string, ToolSchema>,
 ): DisclosureFrame {
   const callNames = new Map<string, string>()
   const loads = new Map<string, PiTool[]>()
@@ -127,7 +137,7 @@ function disclosureFrame(
       if (typeof parsed !== 'object' || parsed === null) continue
       const tools = (parsed as Record<string, unknown>)['tools']
       if (!Array.isArray(tools) || !tools.every(isToolSchema)) continue
-      loads.set(callId, tools.map(tool => ({
+      loads.set(callId, tools.filter(tool => isCurrentDisclosure(tool, available)).map(tool => ({
         name: tool.name,
         description: tool.description,
         parameters: structuredClone(tool.parameters),
@@ -138,6 +148,7 @@ function disclosureFrame(
   }
   return {
     loads,
+    ...available === undefined ? {} : { available },
     progressiveSurface: [...loaded].some(toolName => progressiveNames.has(toolName)),
   }
 }
@@ -150,7 +161,7 @@ function augmentContext(context: PiContext, frame: DisclosureFrame, invokeToolNa
   for (const message of context.messages) {
     if (message['role'] === 'system') {
       const system = message as PiSystemMessage
-      const toolsAdded = system.toolsAdded?.filter(tool => tool.name !== invokeToolName)
+      const toolsAdded = system.toolsAdded?.filter(tool => tool.name !== invokeToolName && isCurrentDisclosure(tool, frame.available))
       const toolsRemoved = system.toolsRemoved?.filter(tool => tool.name !== invokeToolName)
       for (const tool of toolsRemoved ?? []) loaded.delete(tool.name)
       for (const tool of toolsAdded ?? []) loaded.set(tool.name, tool)
@@ -208,7 +219,7 @@ function withinFrame<T>(
 /** Install the reversible pi-ai bridge through DSH's read-only stream hook. */
 export function installNativeDeferredBridge(
   ctx: Context,
-  names: { describe: string; invoke: string; progressive: ReadonlySet<string> },
+  names: { describe: string; invoke: string; progressive: ReadonlySet<string>; available?: (options: GenerateOptions) => ReadonlyMap<string, ToolSchema> | undefined },
 ): void {
   const storage = new AsyncLocalStorage<DisclosureFrame>()
   const patched = new Set<PatchedModels>()
@@ -250,7 +261,9 @@ export function installNativeDeferredBridge(
   }
 
   ctx.on('llm/stream', (options, next) => {
-    const frame = disclosureFrame(options, names.describe, names.progressive)
+    const available = names.available?.(options)
+    if (names.available !== undefined && available === undefined) return next()
+    const frame = disclosureFrame(options, names.describe, names.progressive, available)
     if (!frame.progressiveSurface || !patchProvider(options.provider)) return next()
     return withinFrame(storage, frame, next, () => { patchProvider(options.provider) })
   })

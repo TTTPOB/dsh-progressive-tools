@@ -1,10 +1,10 @@
 # Installation
 
-This package targets DeepSeek Harness 0.2.1-rc.1 with `@deepseek-ai/dsh-tools@0.2.1-rc.1-fork1`, which provides `ToolRuntime.isNativeInPtc`. Install that tools fork through the Host installation’s package overrides before using this plugin; official tools 0.2.1-rc.1 lacks the required API. It mounts progressive tool disclosure once on the host plane for every Agent preset; it does not replace the PTC runtime or patch Harness source.
+This package targets Node >=24.9, DSH 0.2.2-rc.1 and Cordis 4.1.0. It registers discovery tools on the host plane and composes progressive presentation with scoped executors. It does not replace the PTC runtime or patch Harness source.
 
-## Install as a shared plugin
+## Mount discovery once
 
-Install `dsh-progressive-tools@0.5.1` as an ordinary dependency in the profile that resolves these plugins (`autoInstallPeers: false`). Declare its shared plugin row once in `$DSH_HOME/cordis.patch.yml`:
+Install this package as an ordinary dependency of the resolving profile with `autoInstallPeers: false`. Resolve DSH peers from the matching Host installation. Insert the main plugin once in the host composition:
 
 ```yaml
 - insert:
@@ -12,13 +12,32 @@ Install `dsh-progressive-tools@0.5.1` as an ordinary dependency in the profile t
       name: dsh-progressive-tools
 ```
 
-Resolve `@deepseek-ai/dsh-ptc-runtime` from the matching official DSH installation. The plugin requires `tools`, `systemPrompt`, and `llm`; `ctx.ptcRuntime` is required only when presenting PTC/Code mode. Do not also activate this package as a bundle in the same composition: its own `cordis.patch.yml` would insert a duplicate row.
+The bundled `cordis.patch.yml` inserts the same host row. Choose either the explicit row or the bundle, never both. The main plugin requires `tools`, `systemPrompt` and `llm` and provides `progressiveTools`, the shared disclosure configuration used by scoped executors.
 
-The package bundle patch remains available for standalone compositions, but do not add it to daily `dsh.profile.bundles`: with an explicit global row, automatic bundle append would insert a duplicate. Keep daily bundles to the official base and Web app; this shared plugin is not Web-specific.
+## Replace each preset's executor
 
-## Optional configuration
+Within **every Agent preset**, replace the upstream native/PTC executor row rather than adding another executor. Preserve that row's existing id and use the appropriate module name:
 
-The defaults require no edits. To override the shared row in `$DSH_HOME/cordis.patch.yml`:
+```yaml
+# Inside a Native preset's entries:
+- id: native-executor
+  name: dsh-progressive-tools/native
+
+# Inside a PTC preset's entries (not the same scope):
+- id: ptc-executor
+  name: dsh-progressive-tools/ptc
+  config:
+    maxParallelSubCalls: 10
+    ptcNativeTools: []
+```
+
+These modules export `ProgressiveNativeExecutor` and `ProgressivePtcExecutor`; their Cordis plugin names are `progressive-native-executor` and `progressive-ptc-executor`. Native has no configuration. PTC accepts upstream executor limits plus `ptcNativeTools: string[]`. It requires `ptcRuntime` in that scope. Each module injects `progressiveTools`, so the host row must remain available. Select exactly one executor per scope; the host discovery row alone does not modify an upstream executor. `tools.mode` and `DSH_TOOLS_MODE` are not used.
+
+Official DSH supports Native and PTC without native exceptions. Nonempty `ptcNativeTools` requires the matching fork `@deepseek-ai/dsh-tool-executor-ptc`, whose `PtcExecutor` must accept the field, return admitted exceptions from `describe(definitions)`, permit their direct calls, and retain SDK invocation. The progressive wrapper preserves all returned PTC wire declarations and only compacts its SDK. Do not configure exceptions on `tools` or on the host discovery row.
+
+## Optional shared disclosure configuration
+
+Override the host row to configure disclosure once for all progressive executors:
 
 ```yaml
 - id: progressive-tools
@@ -33,8 +52,10 @@ The defaults require no edits. To override the shared row in `$DSH_HOME/cordis.p
     maxResultBytes: 1048576
 ```
 
-Use ordered `toolDisclosureRules` for eager/deferred overrides; see [Disclosure rules](README.md#disclosure-rules) for MCP-only configuration and migration from the removed `deferTools` option. Patches replace the entire config; include every option that should remain explicit. Unknown eager names fail assembly.
+See [Disclosure rules](README.md#disclosure-rules) for MCP-only disclosure and migration from `deferTools`. Unknown eager names fail assembly; a registered eager tool disabled by this step's condition is omitted, not restored. Assembly, discovery and dispatch preserve current-step admission.
 
 ## Verify
 
-Inspect the composed configuration for exactly one `progressive-tools` row and verify its module resolves from the installing profile's ordinary dependency tree. In a new session, Native exposes `search_tools` and `describe_tools` plus `invoke_tool` on APIs without native deferred loading. PTC/Code keeps `run_code` on the wire. Native schema loading at the historical describe result still requires an adapter using pi-ai `Models.streamSimple` with accurate capability flags; otherwise retain the stable `invoke_tool` fallback.
+Inspect the composed configuration for one host discovery row and exactly one progressive executor in each intended preset. Native exposes discovery and eager tools, plus `invoke_tool` on adapters without native deferred loading. PTC exposes `run_code` and any admitted fork-native exceptions; its compact SDK declares discovery and eager tools. Native historical schema loading requires pi-ai `Models.streamSimple`, accurate capability flags and current-step metadata; otherwise the stable invocation fallback remains available.
+
+Run `NODE_OPTIONS=--max-old-space-size=4096 pnpm check` and `pnpm release:pack && pnpm verify:consumer` for source, built Loader and tarball checks without launching a Host. After resolving the matching fork PTC package, run `DSH_FORK_PTC_NATIVE=1 pnpm test` to exercise the retained native-exception tests; official packages skip that fork-specific case.

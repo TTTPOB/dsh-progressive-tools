@@ -11,8 +11,11 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
+import * as NativeExecutor from '../src/native.ts'
+import * as CodeExecutor from '../src/ptc.ts'
 import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
 import type { PtcRunRequest, PtcRunResult } from '@deepseek-ai/dsh-ptc-runtime'
+import type { ResolvedToolSet } from '@deepseek-ai/dsh-tools'
 import ToolRuntime, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -64,7 +67,7 @@ async function mount(config: Config = {}, options: { language?: string; programF
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SystemPrompt, {})
-  await ctx.plugin(ToolRuntime, { mode: options.mode ?? 'native', ptcNativeTools: options.ptcNativeTools ?? [] })
+  await ctx.plugin(ToolRuntime, {})
   ctx.provide('workingDirectory', { ensure: async () => process.cwd() })
   if (options.runtime !== false) {
     await ctx.plugin(FakeRuntime, {
@@ -105,27 +108,27 @@ async function mount(config: Config = {}, options: { language?: string; programF
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
     { inject: ['tools', 'systemPrompt'] }))
   Object.assign(agent, { ctx: scope.ctx })
-  scope.ctx.tools.presentAs(options.mode ?? 'ptc')
-  const row = scope.ctx.plugin({ name, inject: [...inject], Config, apply }, config)
+  const row = ctx.plugin({ name, inject: [...inject], Config, apply }, config)
   await row.await()
+  await scope.ctx.plugin(options.mode === 'native' ? NativeExecutor : CodeExecutor,
+    { ptcNativeTools: options.ptcNativeTools ?? [] })
   return { ctx, scope, agent, row, runtime: ctx.get('ptcRuntime') as FakeRuntime | undefined }
 }
 
 /** Execute one discovery tool as a nested Code Mode call. */
-async function nested(mounted: Mounted, toolName: string, args: unknown) {
+async function nested(mounted: Mounted, toolName: string, args: unknown, toolSet?: ResolvedToolSet) {
   if (mounted.runtime === undefined) throw new Error('nested Code Mode test requires a runtime')
   mounted.runtime.behavior = async (request) => {
     const tools = request.bindings.find(binding => binding.global === 'tools')
     if (tools === undefined) throw new Error('missing tools binding')
     return { logs: [], value: await tools.functions[toolName]!(args) }
   }
-  return mounted.ctx.tools.execute({
-    callId: ToolCallId('outer'),
-    name: RUN_CODE_NAME,
-    arguments: { code: 'return null', description: 'test discovery' },
-    agent: mounted.agent,
-    signal,
+  const batch = await mounted.ctx.tools.execute({
+    calls: [{ type: 'tool-call', id: ToolCallId('outer'), name: RUN_CODE_NAME,
+      arguments: JSON.stringify({ code: 'return null', description: 'test discovery' }) }],
+    agent: mounted.agent, signal, ...toolSet === undefined ? {} : { toolSet },
   })
+  return batch.results[0]!.result
 }
 
 function valueOf(result: Awaited<ReturnType<typeof nested>>) {
@@ -136,14 +139,12 @@ function valueOf(result: Awaited<ReturnType<typeof nested>>) {
 }
 
 /** Execute one ordinary model tool call without the Code transport. */
-async function direct(mounted: Mounted, toolName: string, args: unknown) {
-  return mounted.ctx.tools.execute({
-    callId: ToolCallId('direct-' + toolName),
-    name: toolName,
-    arguments: args,
-    agent: mounted.agent,
-    signal,
+async function direct(mounted: Mounted, toolName: string, args: unknown, toolSet?: ResolvedToolSet) {
+  const batch = await mounted.ctx.tools.execute({
+    calls: [{ type: 'tool-call', id: ToolCallId('direct-' + toolName), name: toolName, arguments: JSON.stringify(args) }],
+    agent: mounted.agent, signal, ...toolSet === undefined ? {} : { toolSet },
   })
+  return batch.results[0]!.result
 }
 
 function directValue(result: Awaited<ReturnType<typeof direct>>) {
@@ -153,7 +154,7 @@ function directValue(result: Awaited<ReturnType<typeof direct>>) {
 }
 
 describe('dsh-progressive-tools', () => {
-  it('preserves core PTC native exceptions even when disclosure rules defer them', async () => {
+  it.skipIf(process.env.DSH_FORK_PTC_NATIVE !== '1')('preserves core PTC native exceptions even when disclosure rules defer them', async () => {
     const mounted = await mount({}, { mode: 'ptc', ptcNativeTools: ['read_file', 'missing'] })
     try {
       const assembly = await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent })
@@ -162,6 +163,27 @@ describe('dsh-progressive-tools', () => {
       expect((await direct(mounted, 'write_file', { path: 'x', text: 'x' })).error?.info?.code).toBe('UNKNOWN_TOOL')
       expect(valueOf(await nested(mounted, 'read_file', { path: 'nested.txt' }))).toEqual({ text: 'read:nested.txt' })
 
+      const removeConditional = mounted.scope.ctx.tools.register(defineTool({
+        name: 'read_file', description: 'Conditional native exception.',
+        parameters: { path: { type: 'string', required: true } },
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+        execute: async args => args.path,
+      }), { when: context => context.modelSelection.model === 'enabled' })
+      for (const model of ['enabled', 'disabled']) {
+        const toolSet = await mounted.ctx.tools.resolve({ agent: mounted.agent, modelSelection: { provider: 'fixture', model }, signal })
+        const current = await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent, toolSet })
+        expect(current.tools.some(tool => tool.name === 'read_file')).toBe(model === 'enabled')
+        const directResult = await direct(mounted, 'read_file', { path: model }, toolSet)
+        expect(directResult.isError).toBe(model !== 'enabled')
+        if (model === 'enabled') {
+          expect(directValue(directResult)).toBe(model)
+          expect(valueOf(await nested(mounted, 'read_file', { path: model }, toolSet))).toBe(model)
+        } else {
+          await expect(nested(mounted, 'read_file', { path: model }, toolSet).then(valueOf)).rejects.toThrow(/not a function/)
+        }
+        toolSet.dispose()
+      }
+      removeConditional()
       mounted.scope.ctx.tools.restrict({ deny: ['read_file'] })
       const restricted = await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent })
       expect(restricted.tools.map(tool => tool.name)).toEqual([RUN_CODE_NAME])
@@ -315,7 +337,7 @@ describe('dsh-progressive-tools', () => {
       const other = { id: SessionId('other'), session: Session.create(SessionId('other')) } as Agent
       let otherScope!: Scope
       await ctx.plugin(Object.assign((inner: Context) => { otherScope = createScope(inner, other) }, { inject: ['tools', 'systemPrompt'] }))
-      otherScope.ctx.tools.presentAs(mode)
+      await otherScope.ctx.plugin(mode === 'native' ? NativeExecutor : CodeExecutor)
       const [, otherAssembly] = await Promise.all([
         ctx.systemPrompt.assemble({ scope: agent }), ctx.systemPrompt.assemble({ scope: other }),
       ])
@@ -336,24 +358,25 @@ describe('dsh-progressive-tools', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SystemPrompt, {})
-    await ctx.plugin(ToolRuntime, { mode: 'ptc' })
+    await ctx.plugin(ToolRuntime, {})
     await ctx.plugin(FakeRuntime)
     expect(() => { apply(ctx, { maxSearchResults: Number.NaN }) }).toThrow(/positive safe integer/)
     expect(() => { apply(ctx, { maxDescribeTools: 1.5 }) }).toThrow(/positive safe integer/)
 
     const row = ctx.plugin({ name, inject: [...inject], Config, apply }, {})
     await row.await()
+    await ctx.plugin(CodeExecutor, {})
     const plainAfter = await ctx.systemPrompt.assemble()
     expect(plainAfter.tools.map(tool => tool.name)).toEqual([RUN_CODE_NAME])
     expect(plainAfter.sections.find(section => section.name === 'tools:progressive-disclosure'))
-      .toBeUndefined()
+      .toBeDefined()
 
     const session = Session.create(SessionId('global-mount'))
     const agent = { id: session.id, session } as unknown as Agent
     let scope!: Scope
     await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
       { inject: ['tools', 'systemPrompt'] }))
-    scope.ctx.tools.presentAs('native')
+    await scope.ctx.plugin(NativeExecutor)
     const assembly = await ctx.systemPrompt.assemble({ scope: agent })
     expect(assembly.tools.map(tool => tool.name).sort())
       .toEqual([DESCRIBE_TOOLS_NAME, INVOKE_TOOL_NAME, SEARCH_TOOLS_NAME].sort())
@@ -485,16 +508,18 @@ describe('dsh-progressive-tools', () => {
     expect(sdk).not.toContain('web_search')
     expect(sdk).not.toContain('write_file')
 
+    await mounted.ctx.plugin(NativeExecutor)
     const plain = await mounted.ctx.systemPrompt.assemble()
     expect(plain.sections.find(section => section.name === 'tools:sdk')).toBeUndefined()
-    expect(plain.tools.map(tool => tool.name)).toEqual(['read_file', 'web_search', 'write_file'])
+    expect(plain.tools.some(tool => tool.name === 'read_file')).toBe(true)
+    expect(plain.tools.some(tool => tool.name === 'write_file')).toBe(false)
   })
 
   it('requires ptcRuntime only when a Code surface is actually assembled', async () => {
     const native = await mount({}, { mode: 'native', runtime: false })
     await expect(native.ctx.systemPrompt.assemble({ scope: native.agent })).resolves.toBeDefined()
     const code = await mount({}, { mode: 'ptc', runtime: false })
-    await expect(code.ctx.systemPrompt.assemble({ scope: code.agent })).rejects.toThrow(/requires a PTC runtime/)
+    await expect(code.ctx.systemPrompt.assemble({ scope: code.agent })).rejects.toThrow(/executor is unavailable/)
   })
 
   it.each(['function-body', 'repl'] as const)('uses %s runtime syntax in assembly and describe SDKs', async (programFormat) => {
@@ -612,12 +637,8 @@ describe('dsh-progressive-tools', () => {
       const tools = request.bindings.find(binding => binding.global === 'tools')!
       return { logs: [], value: await tools.functions.web_search!({ query: 'fresh' }) }
     }
-    const result = await mounted.ctx.tools.execute({
-      callId: ToolCallId('outer-hidden'),
-      name: RUN_CODE_NAME,
-      arguments: { code: 'return tools.web_search({ query: "fresh" })', description: 'call discovered tool' },
-      agent: mounted.agent,
-      signal,
+    const result = await direct(mounted, RUN_CODE_NAME, {
+      code: 'return tools.web_search({ query: "fresh" })', description: 'call discovered tool',
     })
     expect(valueOf(result)).toEqual(['fresh'])
     expect(seen).toEqual([RUN_CODE_NAME, 'web_search'])
@@ -631,10 +652,61 @@ describe('dsh-progressive-tools', () => {
     await mounted.row.dispose()
     expect(mounted.ctx.tools.get(SEARCH_TOOLS_NAME, mounted.agent)).toBeUndefined()
     expect(mounted.ctx.tools.get(DESCRIBE_TOOLS_NAME, mounted.agent)).toBeUndefined()
-    const sdk = (await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent }))
-      .sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-    expect(sdk).toContain('web_search')
-    expect(sdk).not.toContain('Progressive tool disclosure')
+    await expect(mounted.ctx.systemPrompt.assemble({ scope: mounted.agent })).rejects.toThrow(/unavailable/)
+
+  })
+
+  it.each(['native', 'ptc'] as const)('honors step conditions in %s declarations, discovery and dispatch', async mode => {
+    const mounted = await mount({ eagerTools: ['conditional_eager'] }, { mode })
+    let executed = 0
+    for (const name of ['conditional_deferred', 'conditional_eager']) {
+      mounted.ctx.tools.register(defineTool({
+        name, description: 'Conditionally admitted capability.', parameters: {},
+        output: { schema: { type: 'integer' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
+        execute: async () => ++executed,
+      }), { when: context => context.modelSelection.model === 'enabled' })
+    }
+    for (const model of ['disabled', 'enabled', 'disabled']) {
+      const toolSet = await mounted.ctx.tools.resolve({ agent: mounted.agent, modelSelection: { provider: 'fixture', model }, signal })
+      const assembly = await mounted.ctx.systemPrompt.assemble({ scope: mounted.agent, toolSet })
+      const surface = mode === 'native' ? JSON.stringify(assembly.tools) : assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+      expect(surface.includes('conditional_eager')).toBe(model === 'enabled')
+      expect(surface).not.toContain('conditional_deferred')
+      const call = async (name: string, args: unknown) => mode === 'native'
+        ? directValue(await direct(mounted, name, args, toolSet)) : valueOf(await nested(mounted, name, args, toolSet))
+      const found = await call(SEARCH_TOOLS_NAME, {}) as { matches: { name: string }[] }
+      expect(found.matches.some(tool => tool.name === 'conditional_deferred')).toBe(model === 'enabled')
+      if (model === 'enabled') {
+        expect(await call(DESCRIBE_TOOLS_NAME, { names: ['conditional_deferred'] })).toMatchObject({ tools: [{ name: 'conditional_deferred' }] })
+        await call('conditional_deferred', {})
+        if (mode === 'native') await call(INVOKE_TOOL_NAME, { name: 'conditional_deferred', arguments: {} })
+      } else {
+        await expect(call(DESCRIBE_TOOLS_NAME, { names: ['conditional_deferred'] })).rejects.toThrow(/unknown or unavailable/)
+        await expect(call('conditional_deferred', {})).rejects.toThrow(mode === 'native' ? /unknown tool/ : /not a function/)
+        if (mode === 'native') await expect(call(INVOKE_TOOL_NAME, { name: 'conditional_deferred', arguments: {} })).rejects.toThrow(/unknown or unavailable/)
+      }
+      toolSet.dispose()
+    }
+    expect(executed).toBe(mode === 'native' ? 2 : 1)
+  })
+
+  it('forwards native batch identities and nested turn completion', async () => {
+    const mounted = await mount({}, { mode: 'native' })
+    mounted.ctx.tools.register(defineTool({
+      name: 'finish_fixture', description: 'Finish after a successful capability.', parameters: {},
+      output: { schema: { type: 'boolean' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
+      async execute(_args, exec) { exec.concludeTurn(); return true },
+    }))
+    const calls = ['read_file', 'finish_fixture'].map((name, index) => ({
+      type: 'tool-call' as const, id: ToolCallId('batch-' + index), name,
+      arguments: JSON.stringify(name === 'read_file' ? { path: 'batch.txt' } : {}),
+    }))
+    const batch = await mounted.ctx.tools.execute({ calls, agent: mounted.agent, signal })
+    expect(batch.results.map(result => result.callId)).toEqual(calls.map(call => call.id))
+    expect(batch.results.map(result => result.result.isError)).toEqual([false, false])
+    expect(batch.concluded).toBe(true)
+    const invoked = await direct(mounted, INVOKE_TOOL_NAME, { name: 'finish_fixture', arguments: {} })
+    expect(invoked).toMatchObject({ isError: false, value: true, concludesTurn: true })
   })
 
   it('validates eager tool configuration and current scope visibility', async () => {

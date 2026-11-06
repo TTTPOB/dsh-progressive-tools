@@ -1,5 +1,5 @@
-# Mount once on the profile host plane. Scoped ToolRuntime and SystemPrompt
-# views carry the projection into every existing and future Agent preset.
+# Register discovery once on the host plane. Each preset must also select
+# dsh-progressive-tools/native or dsh-progressive-tools/ptc as its executor.
 - insert:
     - id: progressive-tools
       name: dsh-progressive-tools

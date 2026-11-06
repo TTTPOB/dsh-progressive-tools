@@ -8,14 +8,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-ptc-runtime'
 import type { ScopeKey } from '@deepseek-ai/dsh-scope'
-import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
+import { scopeOf } from '@deepseek-ai/dsh-scope'
 import {
   RUN_CODE_NAME,
   defineTool,
-  renderToolsSdk,
-  renderToolsSdkPy,
 } from '@deepseek-ai/dsh-tools'
-import type { JsonSchemaNode, ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { JsonSchemaNode, ToolDefinition, ToolExecutor, ToolPromptSection, ToolBatchInput, ToolBatchResult, ResolvedToolSet } from '@deepseek-ai/dsh-tools'
+import { renderToolsSdk, renderToolsSdkPy } from '@deepseek-ai/dsh-tool-executor-ptc'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
@@ -104,7 +103,7 @@ interface CatalogTool extends ToolSchema {
   output: JsonSchemaNode
 }
 
-type PresentationMode = 'native' | 'ptc'
+export type PresentationMode = 'native' | 'ptc'
 
 interface SearchMatch {
   name: string
@@ -182,11 +181,11 @@ function isDeferred(definition: ToolDefinition, config: ResolvedConfig): boolean
 }
 
 /** One scope's deferred catalog, projected from ToolRuntime's authoritative view. */
-function catalog(ctx: Context, scope: ScopeKey | undefined, config: ResolvedConfig): CatalogTool[] {
+function catalog(ctx: Context, scope: ScopeKey | undefined, config: ResolvedConfig, toolSet: ResolvedToolSet | undefined): CatalogTool[] {
   const result: CatalogTool[] = []
-  for (const schema of ctx.tools.schemas(scope)) {
-    const definition = ctx.tools.get(schema.name, scope)
-    if (definition === undefined || !isDeferred(definition, config)) continue
+  for (const definition of ctx.tools.definitions(scope, toolSet).filter(definition => ctx.tools.executable(definition.name, scope, toolSet) === definition)) {
+    const schema = sdkSchema(definition)
+    if (!isDeferred(definition, config)) continue
     result.push({
       name: schema.name,
       description: schema.description,
@@ -333,81 +332,30 @@ function discoveryInstructions(mode: PresentationMode): string {
   ].join('\n')
 }
 
-/** Stabilize the model-visible wire surface for Native and PTC modes. */
-function compactAssembly(
-  ctx: Context,
-  assembly: PromptAssembly,
-  scope: ScopeKey | undefined,
-  config: ResolvedConfig,
-  discoveryDefinitions: readonly ToolDefinition[],
-  invokeDefinition: ToolDefinition,
-  recordMode: (scope: ScopeKey | undefined, mode: PresentationMode) => void,
-): PromptAssembly {
-  const sdkIndex = assembly.sections.findIndex(section => section.name === 'tools:sdk' && section.text.trim().length > 0)
-  const hasSdk = sdkIndex !== -1
-  const hasRunCode = assembly.tools.some(tool => tool.name === RUN_CODE_NAME)
-  const mode: PresentationMode = hasSdk ? 'ptc' : 'native'
-  if (mode !== 'native' && !hasRunCode) {
-    throw new Error('dsh-progressive-tools: Code presentation SDK exists without the run_code wire transport')
-  }
-  recordMode(scope, mode)
+/** Host-owned disclosure configuration shared by every scoped executor. */
+export interface ProgressiveTools {
+  /** Wrap a selected executor without changing its execution authority. */
+  wrap(executor: ToolExecutor, mode: PresentationMode, scope?: ScopeKey): ToolExecutor
+}
 
-  const known = ctx.tools.schemas(scope).map(tool => tool.name)
-  for (const eagerName of config.eagerTools) {
-    if (ctx.tools.get(eagerName, scope) === undefined) {
-      throw new Error('dsh-progressive-tools: eager tool ' + JSON.stringify(eagerName) + ' is not visible in this scope')
-    }
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    progressiveTools: ProgressiveTools
   }
-  const eagerTools = new Set(known.filter(toolName => {
-    const definition = ctx.tools.get(toolName, scope)
-    return definition !== undefined && !DISCOVERY_NAMES.has(toolName) && !isDeferred(definition, config)
-  }))
-  const schemas = discoveryDefinitions.map((expected) => {
-    const current = ctx.tools.get(expected.name, scope)
-    if (current !== expected) {
-      throw new Error(`dsh-progressive-tools: ${expected.name} is unavailable or shadowed in this scope`)
-    }
-    return sdkSchema(current)
-  })
-  if (mode === 'native') {
-    const currentInvoke = ctx.tools.get(invokeDefinition.name, scope)
-    if (currentInvoke !== invokeDefinition) {
-      throw new Error(`dsh-progressive-tools: ${invokeDefinition.name} is unavailable or shadowed in this scope`)
-    }
-  }
-  for (const eagerName of eagerTools) {
-    schemas.push(sdkSchema(ctx.tools.get(eagerName, scope)!))
+}
+
+/** Compose presentation filtering with the scoped executor's batch implementation. */
+export class ProgressiveExecutor implements ToolExecutor {
+  readonly sections: readonly ToolPromptSection[]
+  private readonly delegate: ToolExecutor
+
+  constructor(ctx: Context, executor: ToolExecutor, mode: PresentationMode) {
+    this.delegate = ctx.progressiveTools.wrap(executor, mode, scopeOf(ctx))
+    this.sections = this.delegate.sections ?? []
   }
 
-  const directNames = new Set<string>()
-  if (mode === 'native') {
-    for (const definition of discoveryDefinitions) directNames.add(definition.name)
-    for (const eagerName of eagerTools) directNames.add(eagerName)
-  }
-  if (mode === 'native') directNames.add(INVOKE_TOOL_NAME)
-  if (mode !== 'native') {
-    directNames.add(RUN_CODE_NAME)
-    for (const tool of assembly.tools) {
-      if (ctx.tools.isNativeInPtc(tool.name)) directNames.add(tool.name)
-    }
-  }
-  const tools = assembly.tools.filter(tool => directNames.has(tool.name)).map(tool => {
-    if (!eagerTools.has(tool.name)) return tool
-    const { deferLoading: _deferLoading, ...eager } = tool
-    return eager
-  })
-
-  const instructions = discoveryInstructions(mode)
-  let sections = assembly.sections.filter(section => section.name !== DISCOVERY_SECTION)
-  if (mode === 'native') {
-    sections = [...sections, { name: DISCOVERY_SECTION, text: instructions }]
-  } else {
-    const rendered = renderSdk(ctx, schemas)
-    sections = sections.map((section, sectionIndex) => sectionIndex === sdkIndex
-      ? { ...section, text: instructions + '\n\n' + rendered.sdk }
-      : section)
-  }
-  return { ...assembly, sections, tools }
+  describe(tools: readonly ToolDefinition[]) { return this.delegate.describe(tools) }
+  execute(input: ToolBatchInput): Promise<ToolBatchResult> { return this.delegate.execute(input) }
 }
 
 /** Register discovery tools and the all-mode stable presentation projection. */
@@ -453,7 +401,7 @@ export function apply(ctx: Context, config: Config): void {
       if (args.limit !== undefined && (!Number.isSafeInteger(args.limit) || args.limit < 1)) {
         throw new Error('search_tools limit must be a positive safe integer')
       }
-      const tools = catalog(ctx, exec.agent, resolved)
+      const tools = catalog(ctx, exec.agent, resolved, exec.toolSet)
       const catalogMatches: SearchMatch[] = tools.map(tool => ({
         name: tool.name,
         description: summarize(tool.description, resolved.maxSummaryChars),
@@ -524,7 +472,7 @@ export function apply(ctx: Context, config: Config): void {
         }
       }
       const names = [...new Set(args.names)]
-      const tools = catalog(ctx, exec.agent, resolved)
+      const tools = catalog(ctx, exec.agent, resolved, exec.toolSet)
       const byName = new Map(tools.map(tool => [tool.name, tool]))
       const unknown = names.filter(toolName => !byName.has(toolName))
       if (unknown.length > 0) {
@@ -543,7 +491,7 @@ export function apply(ctx: Context, config: Config): void {
       if (modeFor(exec.agent, exec.parent !== undefined) === 'native') {
         return Promise.resolve(boundedResult(result, resolved.maxResultBytes, DESCRIBE_TOOLS_NAME))
       }
-      const rendered = renderSdk(ctx, selected)
+      const rendered = renderSdk(exec.agent?.ctx ?? ctx, selected)
       return Promise.resolve(boundedResult({
         ...result,
         language: rendered.language,
@@ -574,22 +522,20 @@ export function apply(ctx: Context, config: Config): void {
       if (graphemes(args.name).length > resolved.maxToolNameChars) {
         throw new Error(`invoke_tool name exceeds the configured ${String(resolved.maxToolNameChars)}-character limit`)
       }
-      const available = new Set(catalog(ctx, exec.agent, resolved).map(tool => tool.name))
+      const available = new Set(catalog(ctx, exec.agent, resolved, exec.toolSet).map(tool => tool.name))
       if (!available.has(args.name)) {
         throw new Error(`invoke_tool received unknown or unavailable tool ${JSON.stringify(args.name)}`)
       }
-      const result = await ctx.tools.execute({
-        callId: ToolCallId(`${String(exec.callId)}:invoke`),
-        rootCallId: exec.rootCallId,
-        name: args.name,
-        arguments: args.arguments,
+      const batch = await ctx.tools.execute({
+        calls: [{ type: 'tool-call', id: ToolCallId(`${String(exec.callId)}:invoke`), name: args.name, arguments: JSON.stringify(args.arguments) }],
         ...exec.agent === undefined ? {} : { agent: exec.agent },
-        parent: exec.token,
+        ...exec.toolSet === undefined ? {} : { toolSet: exec.toolSet },
         signal: exec.signal,
       })
-      for (const context of result.additionalContexts ?? []) exec.deferContext(context)
+      for (const context of batch.additionalContexts) exec.deferContext(context)
+      const result = batch.results[0]!.result
       if (result.isError) throw new Error(result.error.message)
-      if (result.concludesTurn === true) exec.concludeTurn()
+      if (batch.concluded) exec.concludeTurn()
       return result.value
     },
     presentCall: args => ({ card: 'generic', title: `Invoke ${args.name}`, kind: 'execute', rawInput: args.name }),
@@ -599,20 +545,58 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(describeTool)
   ctx.tools.register(invokeTool)
   const definitions = [searchTool, describeTool]
+  const stepTools = new Map<string, ReadonlyMap<string, ToolSchema>>()
+  ctx.on('system-prompt/assemble', async (_presentation, context, next) => {
+    const presentation = await next()
+    const scope = context.scope
+    if (scope !== undefined && 'id' in scope && typeof scope.id === 'string') {
+      stepTools.set(scope.id, new Map(ctx.tools.definitions(scope, context.toolSet)
+        .filter(tool => ctx.tools.executable(tool.name, scope, context.toolSet) === tool).map(tool => [tool.name, sdkSchema(tool)])))
+    }
+    return presentation
+  })
   installNativeDeferredBridge(ctx, {
+    available: options => options.sessionId === undefined ? undefined : stepTools.get(options.sessionId),
     describe: DESCRIBE_TOOLS_NAME,
     invoke: INVOKE_TOOL_NAME,
     progressive: new Set([SEARCH_TOOLS_NAME, DESCRIBE_TOOLS_NAME, INVOKE_TOOL_NAME]),
   })
-  // Prepend makes this listener the outer wrapper for listeners already present;
-  // transforming after next() preserves every cooperative inner rewrite.
-  ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-    const assembly = await next()
-    // A host-plane bundle mount sees agentless administrative assemblies too.
-    // They have no presentation mode or execution scope to project.
-    if (context.scope === undefined) return assembly
-    return compactAssembly(ctx, assembly, context.scope, resolved, definitions, invokeTool, (scope, mode) => {
-      if (scope !== undefined) presentationModes.set(scope, mode)
-    })
-  }, { prepend: true })
+  ctx.provide('progressiveTools', {
+    wrap(executor, mode, scope) {
+      const select = (tools: readonly ToolDefinition[]) => {
+        for (const expected of [...definitions, ...mode === 'native' ? [invokeTool] : []]) {
+          if (!tools.includes(expected)) throw new Error(`dsh-progressive-tools: ${expected.name} is unavailable or shadowed in this scope`)
+        }
+        return tools.filter(tool => tool.name !== INVOKE_TOOL_NAME && !isDeferred(tool, resolved)
+          || mode === 'native' && tool === invokeTool)
+      }
+      const sections: ToolPromptSection[] = (executor.sections ?? []).map(section => section.name === 'tools:sdk'
+        ? { ...section, text: tools => typeof section.text === 'function' ? section.text(select(tools)) : section.text }
+        : section)
+      sections.push({ name: DISCOVERY_SECTION, order: ctx.systemPrompt.getSectionOrder('TOOLS_SDK'), text: discoveryInstructions(mode), interpolate: false })
+      return {
+        sections,
+        describe(tools) {
+          // Validate names without using registered definitions to build the step's surface.
+          for (const eagerName of resolved.eagerTools) {
+            if (!ctx.tools.definitions(scope).some(tool => tool.name === eagerName)
+              && !tools.some(tool => tool.name === eagerName)) {
+              throw new Error('dsh-progressive-tools: eager tool ' + JSON.stringify(eagerName) + ' is not visible in this scope')
+            }
+          }
+          const selected = select(tools)
+          const modelInput = executor.describe(tools)
+          const selectedNames = new Set(selected.map(tool => tool.name))
+          return mode === 'ptc' ? modelInput : {
+            ...modelInput,
+            schemas: modelInput.schemas.filter(schema => selectedNames.has(schema.name)).map(schema => ({ ...schema, deferLoading: false })),
+          }
+        },
+        execute(input) {
+          if (input.agent !== undefined) presentationModes.set(input.agent, mode)
+          return executor.execute(input)
+        },
+      }
+    },
+  })
 }

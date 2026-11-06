@@ -2,16 +2,16 @@
 
 [English](README.md) | 中文
 
-面向 DeepSeek Harness Native 与 PTC（Code）模式中所有 Agent preset 的自动挂载、渐进式工具披露层。它只改变呈现层：即使实时 ToolRuntime 目录注册、注销、限制或遮蔽非 eager 工具，模型可见的工具前缀仍保持稳定。
+面向 DeepSeek Harness Native 与 PTC（Code）executor 的渐进式工具披露层。它只改变呈现层：即使本步可用的 ToolRuntime 目录注册、注销、限制或遮蔽非 eager 工具，模型可见的工具前缀仍保持稳定。
 
 
 ## 发布验证
 
-本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用 DSH `0.2.1-rc.1` 和 `@deepseek-ai/dsh-tools@0.2.1-rc.1-fork1`；native 协议测试同时使用 pi-ai `1.1.0` 的 transcript 回放；PTC 原生例外测试需要配套的 core ToolRuntime API。`pnpm release:pack && pnpm verify:consumer` 检查 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，profile 只安装插件并关闭自动 peers；不启动 Host。
+本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用官方 DSH `0.2.2-rc.1` 与 Cordis `4.1.0`；native 协议测试使用 pi-ai transcript 回放。安装配套 fork PTC executor 后，运行 `DSH_FORK_PTC_NATIVE=1 pnpm test` 启用原生例外测试；官方包尚无 `ptcNativeTools`，这些测试保留但默认跳过。`pnpm release:pack && pnpm verify:consumer` 验证 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，不启动 Host。
 
 ## 安装与组装
 
-按照 [`INSTALL.md`](INSTALL.md) 将此包与 DSH 0.2.1-rc.1 及 peer 声明指定的精确 tools fork 组合。通过正常 profile dependencies 安装（`autoInstallPeers: false`），并由 `$DSH_HOME/cordis.patch.yml` 的共用插件行在 host plane 挂载一次，再由 ToolRuntime 与 SystemPrompt 的作用域视图将它传递给所有已有和未来的 Agent preset。无需复制、编辑或选择额外 preset。插件固定依赖 `tools`、`systemPrompt` 与 `llm`；只有 Agent 实际呈现 Code Mode 时才需要 `ptcRuntime`。它不会修改 Harness checkout。
+按照 [INSTALL.md](INSTALL.md) 组合 Node >=24.9 与 DSH 0.2.2-rc.1。主插件在 host plane 挂载一次，注册发现工具与共用披露配置；**每个 Agent preset** 还必须将上游 executor 行替换为 `dsh-progressive-tools/native` 或 `dsh-progressive-tools/ptc`，仅挂主插件不会接管呈现。同一作用域不得同时选择上游与 progressive executor。主插件依赖 `tools`、`systemPrompt` 和 `llm`；只有 PTC executor 依赖 `ptcRuntime`。它不会修改 Harness checkout。
 
 ```yaml
 - id: progressive-tools
@@ -50,7 +50,7 @@
 - **Regex：** 使用 JavaScript `new RegExp(source)` 语法，不加 `/pattern/` 分隔符或 flags。默认匹配子串；需要整名匹配时自行添加 `^` 和 `$`。非法正则及错误规则在加载配置时失败，直接调用 `apply` 也会校验。
 - **优先级：** 命中的规则 → 旧 `eagerTools` → 工具自身的 `deferLoading: true` → 默认 deferred。无规则时，所有非 eager 工具仍然延迟。显式 eager 规则和 `eagerTools` 可覆盖工具自身延迟标记；deferred 规则可覆盖 `eagerTools`。旧 eager 名称不可见时仍会让 assembly 失败，即使规则将其设为 deferred。
 - **控制工具：** 对 `search_tools`、`describe_tools`、`invoke_tool`、`run_code` 忽略所有规则，包括精确匹配。它们维持各模式和能力下的原有呈现；规则既不能隐藏，也不能强制暴露它们。
-- **实时作用域：** 规则可以匹配尚未注册的名称。每次组装和 search/describe/invoke 调用均用同一策略分类当前作用域注册表。eager 工具进入 Native 声明或 Code SDK；只有 deferred 工具进入发现及兜底调用目录。eager 工具注册和移除会改变前缀，deferred 目录变动不会。
+- **本步作用域：** 规则可以匹配尚未注册的名称。Executor 只过滤本步传入的定义；发现与嵌套调用透传同一 `toolSet`。即使历史 describe 结果包含某工具，`when: false` 时也不能展示、发现或执行。eager 工具注册和移除会改变前缀，deferred 目录变动不会。
 
 **迁移：** 已移除 `deferTools`；配置中只要包含该项就会明确报迁移错误。删除 `deferTools: all` 即保留默认行为；将 `deferTools: mcp` 替换为上例前两条规则。如果原来用 `eagerTools` 设置 MCP 例外，需要在 MCP deferred 规则**之后**添加精确 eager 规则，因为规则现在优先于旧列表。宽泛的 eager 规则也会覆盖工具自身的延迟标记，需要时应另加 deferred 例外。配置需显式更新；本包不会自动迁移已有安装。
 
@@ -62,7 +62,7 @@
 | Native，其他 API | `search_tools`、`describe_tools`、`invoke_tool`、eager 工具 | `invoke_tool({ name, arguments })` |
 | Code | `run_code` 与 core 配置的原生例外，SDK 声明发现与 eager binding | 后续 `run_code` 中调用 `tools[exactName](arguments)` |
 
-PTC 原生例外由 core 的 `tools.ptcNativeTools` 选择（默认 `[]`），不由披露规则选择。本插件通过 `ctx.tools.isNativeInPtc(name)` 保留可见例外，即使规则把它们设为 deferred。其 SDK 调用仍然可用；限制和执行策略照常生效。这需要提供该 API 的 core ToolRuntime。
+PTC 原生例外由 fork PTC executor 的 `ptcNativeTools: string[]` 配置选择，不属于 `tools` 或披露规则。本插件完整保留该 executor 返回的 wire schema，包括被设为 deferred 的原生例外，只裁剪 SDK。官方 DSH 可正常使用无例外模式；启用例外需要配套 fork `@deepseek-ai/dsh-tool-executor-ptc`。例外仍可通过完整 SDK 调用，且受本步 admission 和执行策略约束。
 
 `invoke_tool` 是能力兜底，不是第二套 Code transport。若解析后的模型同时支持会话中途的 system message 与 transcript 工具增量，插件会在 pi-ai 请求边界移除它。PTC 已有 `run_code`，因此不会暴露 `invoke_tool`。
 
@@ -73,9 +73,9 @@ PTC 原生例外由 core 的 `tools.ptcNativeTools` 选择（默认 `[]`），�
 3. 后续模型步骤中，原生支持的 API 使用该精确名称与参数发起普通工具调用。插件从持久化请求历史重建成功的 `describe_tools` 结果，并把 schema 注入对应 tool-result 位置。不支持该能力的 Native API 使用稳定的 `invoke_tool({ name, arguments })` 兜底。Code 在后续 `run_code` 中调用 `tools[exactName](arguments)`。
 4. 执行时 ToolRuntime 重新解析当前作用域目录。仍存在且可见的工具正常运行；已删除、受限、被遮蔽或拼错的名称返回当前失败原因。
 
-搜索与描述每次都使用 `ctx.tools.schemas(exec.agent)` 和 `ctx.tools.get(name, exec.agent)`。Search 只返回 `name`、`description` 与紧凑计数元数据；describe 只为选中的名称返回精确 schema。两者都不会暴露内部目录或呈现元数据。
+搜索与描述使用 `ctx.tools.definitions(exec.agent, exec.toolSet)`，并以同一 admission 检查 `executable`。Search 仅返回名称、有界描述与计数元数据；describe 只返回选中名称的精确 schema，不暴露内部目录或呈现元数据。
 
-协议不维护可变 reveal 集合：搜索不会解锁能力，完整实时目录仍是执行权威。每次请求都会从已记录的 `describe_tools` 调用/结果对重建 Native 披露。
+协议不维护可变 reveal 集合：搜索不会解锁能力。每次请求都从历史 describe 调用/结果对重建 Native 披露，再与本步定义求交；缺失本步元数据时不恢复未经核实的历史 schema，继续使用发现与兜底调用。
 
 ### Native API 注入
 

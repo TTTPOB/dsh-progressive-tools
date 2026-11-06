@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { getCurrentTools, resolveTranscriptTools } from '@earendil-works/pi-ai/utils/transcript'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { ToolCallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { DESCRIBE_TOOLS_NAME, INVOKE_TOOL_NAME, SEARCH_TOOLS_NAME } from '../src/index.ts'
 import { installNativeDeferredBridge } from '../src/native-deferred.ts'
 
@@ -130,12 +130,13 @@ async function consume(iterable: AsyncIterable<StreamChunk>): Promise<void> {
   for await (const _chunk of iterable) { /* consume the lazy adapter path */ }
 }
 
-async function setup(supportsToolAdditions: boolean) {
+async function setup(supportsToolAdditions: boolean, available?: () => ReadonlyMap<string, ToolSchema>) {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   const adapter = new FixtureAdapter(supportsToolAdditions)
   ctx.llm.registerAdapter(['fixture'], adapter)
   installNativeDeferredBridge(ctx, {
+    ...available === undefined ? {} : { available },
     describe: DESCRIBE_TOOLS_NAME,
     invoke: INVOKE_TOOL_NAME,
     progressive: new Set([SEARCH_TOOLS_NAME, DESCRIBE_TOOLS_NAME, INVOKE_TOOL_NAME]),
@@ -144,6 +145,23 @@ async function setup(supportsToolAdditions: boolean) {
 }
 
 describe('native deferred bridge', () => {
+  it('loads only current-step definitions when replaying historical descriptions', async () => {
+    const current = { name: 'pwsh', description: 'Current step capability.', parameters: { type: 'object', properties: { command: { type: 'string' } } } }
+    const admitted = new Map([[current.name, current]])
+    const { ctx, adapter } = await setup(true, () => admitted)
+    await consume(ctx.llm.stream(request(discoveryTools, 'current-step', current.description)))
+    expect(adapter.captured?.messages.at(-1)).toMatchObject({ role: 'system', toolsAdded: [current] })
+    current.description = 'Changed step capability.'
+    await consume(ctx.llm.stream(request()))
+    expect(adapter.captured?.messages.some(message => message['toolsAdded'] !== undefined)).toBe(false)
+    await consume(ctx.llm.stream(request(discoveryTools, 'updated-step', current.description)))
+    expect(adapter.captured?.messages.at(-1)).toMatchObject({ role: 'system', toolsAdded: [current] })
+    admitted.clear()
+    await consume(ctx.llm.stream(request()))
+    expect(adapter.captured?.messages.some(message => message['toolsAdded'] !== undefined)).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
   it('loads disclosed schemas at the describe result and removes invoke_tool for capable models', async () => {
     const { ctx, adapter } = await setup(true)
     await consume(ctx.llm.stream(request()))

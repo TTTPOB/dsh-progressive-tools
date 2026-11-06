@@ -45,7 +45,7 @@ import { readFileSync, realpathSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import { loadProfileDirectory, createRuntimeResolution, PluginPackages, composeEntries, setProfileVersionExemption } from '@deepseek-ai/dsh-app-boot'
+import { loadProfileDirectory, createRuntimeResolution, PluginPackages, composeEntries } from '@deepseek-ai/dsh-app-boot'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 const profileDir = ${JSON.stringify(profile)}
 const anchor = ${JSON.stringify(join(host, 'package.json'))}
@@ -53,14 +53,7 @@ const pkgName = ${JSON.stringify(pkg.name)}
 const pkgVersion = ${JSON.stringify(pkg.version)}
 const profileManifest = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
 assert(!Object.keys(profileManifest.dependencies).some(name => name.startsWith('@deepseek-ai/')))
-const identities = pkgName === 'dsh-workspace-envrc' ? ['dsh-workspace-overlay@0.2.0', pkgName + '@' + pkgVersion] : [pkgName + '@' + pkgVersion]
-for (const identity of identities) await setProfileVersionExemption(profileDir, identity, '0.2.1-rc.1', false, false)
-let profile = loadProfileDirectory('release-smoke', profileDir, anchor)
-{
-  assert.equal(profile.skippedBundles.length, identities.length, 'Fork-only peers must fail official Host admission without informed consent')
-  for (const identity of identities) await setProfileVersionExemption(profileDir, identity, '0.2.1-rc.1', true, true)
-  profile = loadProfileDirectory('release-smoke', profileDir, anchor)
-}
+const profile = loadProfileDirectory('release-smoke', profileDir, anchor)
 assert.deepEqual(profile.skippedBundles, [])
 const resolution = await createRuntimeResolution({ installAnchor: anchor, profile, home: ${JSON.stringify(home)} })
 const ctx = new Context()
@@ -99,6 +92,26 @@ try {
   }
   await ctx.loader.create({ id: 'built-entry', name: pkgName, config: pkgName === 'dsh-workspace-overlay' ? { trustWorkspaceConfig: false, watchWorkspaceConfig: false } : {} })
   await ctx.loader.await()
+  if (pkgName === 'dsh-progressive-tools') {
+    await ctx.loader.create({ id: 'built-native-executor', name: pkgName + '/native' })
+    await ctx.loader.await()
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const { ToolCallId } = await import('@deepseek-ai/dsh-llm')
+    ctx.tools.register(defineTool({
+      name: 'packed_echo', description: 'Echo through the packed native executor.',
+      parameters: { value: { type: 'string', required: true } },
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async args => args.value,
+    }))
+    const assembly = await ctx.systemPrompt.assemble()
+    assert(assembly.tools.some(tool => tool.name === 'search_tools'), 'Packed discovery not declared')
+    assert(!assembly.tools.some(tool => tool.name === 'packed_echo'), 'Packed deferred capability leaked')
+    const batch = await ctx.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId('packed-invoke'), name: 'invoke_tool', arguments: JSON.stringify({ name: 'packed_echo', arguments: { value: 'packed result' } }) }],
+      signal: new AbortController().signal,
+    })
+    assert.deepEqual(batch.results.map(result => result.result.value), ['packed result'])
+  }
   assert(ctx.get(pkgName === 'dsh-workspace-overlay' ? 'workspaceCordis' : pkgName === 'dsh-workspace-envrc' ? 'workspaceEnvrc' : 'tools'), 'Built provider did not activate')
   const entries = composeEntries([...profile.layers.map(layer => layer.patches), profile.patches])
   assert(entries.length > 0, 'Bundle did not contribute rows')
