@@ -7,7 +7,7 @@ A presentation-only progressive tool disclosure layer for DeepSeek Harness Nativ
 
 ## Release validation
 
-Use `pnpm prepare:release` followed by [Validate and release](.github/workflows/release.yml). Source tests use official DSH `0.2.2-rc.1` and Cordis `4.1.0`; native protocol tests use pi-ai transcript replay. After installing a matching fork PTC executor, run `DSH_FORK_PTC_NATIVE=1 pnpm test` to enable native-exception coverage. These tests are retained but skipped against official packages, which do not implement `ptcNativeTools`. `pnpm release:pack && pnpm verify:consumer` checks packed exports, Host-shared peer resolution and real Loader activation without launching a Host.
+Use `pnpm prepare:release` followed by [Validate and release](.github/workflows/release.yml). Source tests use official DSH `0.2.2-rc.1` and Cordis `4.1.0`; native protocol tests use pi-ai transcript replay. After installing a matching fork PTC executor, run `DSH_FORK_PTC_NATIVE=1 pnpm test` to enable native-exception coverage. These tests are retained but skipped against official packages, which do not implement `ptcNativeTools`. `pnpm release:pack && pnpm verify:consumer` checks packed exports, Host-shared peer resolution and real Loader activation without launching a Host. Schemastery is a plugin-owned runtime dependency; only stateful Cordis/DSH services require Host-shared instances.
 
 ## Installation and composition
 

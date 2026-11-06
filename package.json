@@ -64,7 +64,6 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/schemastery": "3.19.0",
     "@deepseek-ai/cordis": "4.1.0",
     "@deepseek-ai/dsh-ptc-runtime": "0.2.2-rc.1",
     "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
@@ -76,7 +75,6 @@
     "@deepseek-ai/dsh-tool-executor-ptc": "0.2.2-rc.1"
   },
   "devDependencies": {
-    "@deepseek-ai/schemastery": "3.19.0",
     "@deepseek-ai/cordis": "4.1.0",
     "@deepseek-ai/cordis-plugin-include": "1.1.0",
     "@deepseek-ai/cordis-plugin-loader": "1.1.0",
@@ -110,5 +108,8 @@
   },
   "engines": {
     "node": ">=24.9.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.19.0"
   }
 }

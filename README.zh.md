@@ -7,7 +7,7 @@
 
 ## 发布验证
 
-本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用官方 DSH `0.2.2-rc.1` 与 Cordis `4.1.0`；native 协议测试使用 pi-ai transcript 回放。安装配套 fork PTC executor 后，运行 `DSH_FORK_PTC_NATIVE=1 pnpm test` 启用原生例外测试；官方包尚无 `ptcNativeTools`，这些测试保留但默认跳过。`pnpm release:pack && pnpm verify:consumer` 验证 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，不启动 Host。
+本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用官方 DSH `0.2.2-rc.1` 与 Cordis `4.1.0`；native 协议测试使用 pi-ai transcript 回放。安装配套 fork PTC executor 后，运行 `DSH_FORK_PTC_NATIVE=1 pnpm test` 启用原生例外测试；官方包尚无 `ptcNativeTools`，这些测试保留但默认跳过。`pnpm release:pack && pnpm verify:consumer` 验证 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，不启动 Host。Schemastery 作为插件运行依赖安装；仅有状态的 Cordis／DSH 服务需要与 Host 共享实例。
 
 ## 安装与组装
 
