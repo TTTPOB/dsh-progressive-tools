@@ -93,7 +93,19 @@ try {
   await ctx.loader.create({ id: 'built-entry', name: pkgName, config: pkgName === 'dsh-workspace-overlay' ? { trustWorkspaceConfig: false, watchWorkspaceConfig: false } : {} })
   await ctx.loader.await()
   if (pkgName === 'dsh-progressive-tools') {
-    await ctx.loader.create({ id: 'built-native-executor', name: pkgName + '/native' })
+    const forkPtc = process.env.DSH_FORK_PTC_NATIVE === '1'
+    if (forkPtc) {
+      const { PtcRuntime } = await import('@deepseek-ai/dsh-ptc-runtime')
+      class DirectCallRuntime extends PtcRuntime {
+        language = 'typescript'
+        isolation = 'consumer-fixture'
+        resolve(request) { return { ...request, cwd: process.cwd(), timeoutMs: 1000 } }
+        async run() { throw new Error('Direct native exception must not enter the PTC runtime') }
+      }
+      await ctx.plugin(DirectCallRuntime)
+    }
+    await ctx.loader.create({ id: 'built-executor', name: pkgName + (forkPtc ? '/ptc' : '/native'),
+      config: forkPtc ? { ptcNativeTools: ['packed_echo'] } : {} })
     await ctx.loader.await()
     const { defineTool } = await import('@deepseek-ai/dsh-tools')
     const { ToolCallId } = await import('@deepseek-ai/dsh-llm')
@@ -104,10 +116,10 @@ try {
       execute: async args => args.value,
     }))
     const assembly = await ctx.systemPrompt.assemble()
-    assert(assembly.tools.some(tool => tool.name === 'search_tools'), 'Packed discovery not declared')
-    assert(!assembly.tools.some(tool => tool.name === 'packed_echo'), 'Packed deferred capability leaked')
+    assert(assembly.tools.some(tool => tool.name === (forkPtc ? 'run_code' : 'search_tools')), 'Packed executor not declared')
+    assert.equal(assembly.tools.some(tool => tool.name === 'packed_echo'), forkPtc, 'Packed exception admission differs')
     const batch = await ctx.tools.execute({
-      calls: [{ type: 'tool-call', id: ToolCallId('packed-invoke'), name: 'invoke_tool', arguments: JSON.stringify({ name: 'packed_echo', arguments: { value: 'packed result' } }) }],
+      calls: [{ type: 'tool-call', id: ToolCallId('packed-invoke'), name: forkPtc ? 'packed_echo' : 'invoke_tool', arguments: JSON.stringify(forkPtc ? { value: 'packed result' } : { name: 'packed_echo', arguments: { value: 'packed result' } }) }],
       signal: new AbortController().signal,
     })
     assert.deepEqual(batch.results.map(result => result.result.value), ['packed result'])
