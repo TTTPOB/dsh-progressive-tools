@@ -7,11 +7,11 @@ A presentation-only progressive tool disclosure layer for DeepSeek Harness Nativ
 
 ## Release validation
 
-Use `pnpm prepare:release` followed by [Validate and release](.github/workflows/release.yml). Source tests use official DSH `0.2.2-rc.1` and Cordis `4.1.0`; native protocol tests use pi-ai transcript replay. After installing a matching fork PTC executor, run `DSH_FORK_PTC_NATIVE=1 pnpm test` to enable native-exception coverage. These tests are retained but skipped against official packages, which do not implement `ptcNativeTools`. `pnpm release:pack && pnpm verify:consumer` checks packed exports, Host-shared peer resolution and real Loader activation without launching a Host. Schemastery is a plugin-owned runtime dependency; only stateful Cordis/DSH services require Host-shared instances.
+Use `pnpm prepare:release` followed by [Validate and release](.github/workflows/release.yml). Source tests use DSH `0.2.2-rc.5` with the fork PTC executor and Cordis `4.1.0`; native protocol tests replay transcripts against Pi AI `1.3.0-fork3`. After installing a matching fork PTC executor, run `DSH_FORK_PTC_NATIVE=1 pnpm test` to enable native-exception coverage. These tests are retained but skipped against official packages, which do not implement `ptcNativeTools`. `pnpm release:pack && pnpm verify:consumer` checks packed exports, Host-shared peer resolution and real Loader activation without launching a Host. Schemastery is a plugin-owned runtime dependency; only stateful Cordis/DSH services require Host-shared instances.
 
 ## Installation and composition
 
-Follow [INSTALL.md](INSTALL.md) with Node >=24.9 and DSH 0.2.2-rc.1. Mount the main plugin once on the host plane to register discovery tools and shared disclosure configuration. In **each Agent preset**, replace the upstream executor row with `dsh-progressive-tools/native` or `dsh-progressive-tools/ptc`; the host row alone does not change presentation. Do not select both upstream and progressive executors in the same scope. The main plugin requires `tools`, `systemPrompt`, and `llm`; only the PTC executor requires `ptcRuntime`. It never patches the Harness checkout.
+Follow [INSTALL.md](INSTALL.md) with Node >=24.9 and DSH 0.2.2-rc.5. Mount the main plugin once on the host plane to register discovery tools and shared disclosure configuration. In **each Agent preset**, replace the upstream executor row with `dsh-progressive-tools/native` or `dsh-progressive-tools/ptc`; the host row alone does not change presentation. Do not select both upstream and progressive executors in the same scope. The main plugin requires `tools`, `systemPrompt`, and `llm`; only the PTC executor requires `ptcRuntime`. It never patches the Harness checkout.
 
 ```yaml
 - id: progressive-tools

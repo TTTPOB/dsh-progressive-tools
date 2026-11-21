@@ -10,6 +10,9 @@ on:
 permissions:
   contents: read
 
+env:
+  DSH_FORK_PTC_NATIVE: '1'
+
 jobs:
   validate:
     runs-on: ubuntu-latest

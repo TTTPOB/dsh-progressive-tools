@@ -45,7 +45,7 @@ writeFileSync(join(destination, 'release-notes.md'), [
   '',
   'Breaking configuration migration: deferTools has been removed and now fails at load. Remove deferTools: all; replace deferTools: mcp with ordered rules [{ glob: "*", disclosure: "eager" }, { glob: "mcp__*", disclosure: "deferred" }]. Add exact eager MCP exceptions after these rules; rules override legacy eagerTools and tool deferLoading markers. See README for full semantics.',
   '',
-  'Requires DSH 0.2.2-rc.1, Cordis 4.1.0 and Node >=24.9. Select dsh-progressive-tools/native or /ptc in every preset; keep the shared host discovery row. PTC native exceptions require the matching fork PtcExecutor.',
+  'Requires DSH 0.2.2-rc.5, Cordis 4.1.0 and Node >=24.9. Select dsh-progressive-tools/native or /ptc in every preset; keep the shared host discovery row. PTC native exceptions require the matching fork PtcExecutor.',
   '',
   'Install as an ordinary dependency of the resolving profile (autoInstallPeers: false). Declare the shared progressive-tools row in $DSH_HOME/cordis.patch.yml.',
   '',

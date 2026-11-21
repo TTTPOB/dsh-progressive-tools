@@ -1,6 +1,6 @@
 # Installation
 
-This package targets Node >=24.9, DSH 0.2.2-rc.1 and Cordis 4.1.0. It registers discovery tools on the host plane and composes progressive presentation with scoped executors. It does not replace the PTC runtime or patch Harness source.
+This package targets Node >=24.9, DSH 0.2.2-rc.5 and Cordis 4.1.0. It registers discovery tools on the host plane and composes progressive presentation with scoped executors. It does not replace the PTC runtime or patch Harness source.
 
 ## Mount discovery once
 

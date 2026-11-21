@@ -7,11 +7,11 @@
 
 ## 发布验证
 
-本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用官方 DSH `0.2.2-rc.1` 与 Cordis `4.1.0`；native 协议测试使用 pi-ai transcript 回放。安装配套 fork PTC executor 后，运行 `DSH_FORK_PTC_NATIVE=1 pnpm test` 启用原生例外测试；官方包尚无 `ptcNativeTools`，这些测试保留但默认跳过。`pnpm release:pack && pnpm verify:consumer` 验证 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，不启动 Host。Schemastery 作为插件运行依赖安装；仅有状态的 Cordis／DSH 服务需要与 Host 共享实例。
+本地与 [Validate and release](.github/workflows/release.yml) 共用 `pnpm prepare:release`，使用 DSH `0.2.2-rc.5`、fork PTC executor 与 Cordis `4.1.0`；Native 协议测试使用 Pi AI `1.3.0-fork3` 回放请求记录。安装配套 fork PTC executor 后，运行 `DSH_FORK_PTC_NATIVE=1 pnpm test` 启用原生例外测试；官方包尚无 `ptcNativeTools`，这些测试保留但默认跳过。`pnpm release:pack && pnpm verify:consumer` 验证 tarball exports、正式 Host 包解析器下的共享 peers 和真实 Loader 激活，不启动 Host。Schemastery 作为插件运行依赖安装；仅有状态的 Cordis／DSH 服务需要与 Host 共享实例。
 
 ## 安装与组装
 
-按照 [INSTALL.md](INSTALL.md) 组合 Node >=24.9 与 DSH 0.2.2-rc.1。主插件在 host plane 挂载一次，注册发现工具与共用披露配置；**每个 Agent preset** 还必须将上游 executor 行替换为 `dsh-progressive-tools/native` 或 `dsh-progressive-tools/ptc`，仅挂主插件不会接管呈现。同一作用域不得同时选择上游与 progressive executor。主插件依赖 `tools`、`systemPrompt` 和 `llm`；只有 PTC executor 依赖 `ptcRuntime`。它不会修改 Harness checkout。
+按照 [INSTALL.md](INSTALL.md) 组合 Node >=24.9 与 DSH 0.2.2-rc.5。主插件在 host plane 挂载一次，注册发现工具与共用披露配置；**每个 Agent preset** 还必须将上游 executor 行替换为 `dsh-progressive-tools/native` 或 `dsh-progressive-tools/ptc`，仅挂主插件不会接管呈现。同一作用域不得同时选择上游与 progressive executor。主插件依赖 `tools`、`systemPrompt` 和 `llm`；只有 PTC executor 依赖 `ptcRuntime`。它不会修改 Harness checkout。
 
 ```yaml
 - id: progressive-tools
