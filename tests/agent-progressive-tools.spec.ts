@@ -667,12 +667,15 @@ describe('dsh-progressive-tools', () => {
     expect(result).toMatchObject({ isError: true, error: { message } })
   })
 
-  it('does not tell PTC callers to call disclosure controls directly', async () => {
-    const mounted = await mount({}, { mode: 'ptc' })
+  it.each(['native', 'ptc'] as const)('explains discovery control exclusions in %s', async mode => {
+    const mounted = await mount({}, { mode })
+    const call = mode === 'native' ? direct : nested
     for (const name of [INVOKE_TOOL_NAME, RUN_CODE_NAME, SEARCH_TOOLS_NAME, DESCRIBE_TOOLS_NAME]) {
-      const result = await nested(mounted, DESCRIBE_TOOLS_NAME, { names: [name] })
-      expect(result).toMatchObject({ isError: true, error: { message: expect.stringContaining('unknown or unavailable tool') } })
-      expect(result).not.toMatchObject({ error: { message: expect.stringContaining('already declared directly') } })
+      const result = await call(mounted, DESCRIBE_TOOLS_NAME, { names: [name] })
+      expect(result).toMatchObject({
+        isError: true,
+        error: { message: `${name} is a discovery control, not a deferred tool; describe_tools only describes deferred tools` },
+      })
     }
   })
 

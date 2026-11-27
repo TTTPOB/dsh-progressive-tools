@@ -476,13 +476,19 @@ export function apply(ctx: Context, config: Config): void {
       const byName = new Map(tools.map(tool => [tool.name, tool]))
       const absent = names.filter(toolName => !byName.has(toolName))
       if (absent.length > 0) {
+        const controls = absent.filter(toolName => DISCOVERY_NAMES.has(toolName))
         const eager = absent.filter(toolName => {
           if (DISCOVERY_NAMES.has(toolName)) return false
           const definition = ctx.tools.executable(toolName, exec.agent, exec.toolSet)
           return definition !== undefined && !isDeferred(definition, resolved)
         })
-        const missingCount = absent.length - eager.length
+        const missingCount = absent.length - eager.length - controls.length
         const messages: string[] = []
+        if (controls.length > 0) {
+          messages.push(controls.join(', ') + (controls.length === 1
+            ? ' is a discovery control, not a deferred tool'
+            : ' are discovery controls, not deferred tools') + '; describe_tools only describes deferred tools')
+        }
         if (missingCount > 0) {
           messages.push('describe_tools received unknown or unavailable tool' + (missingCount === 1 ? '' : 's'))
         }
