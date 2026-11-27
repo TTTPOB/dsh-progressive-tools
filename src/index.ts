@@ -474,10 +474,23 @@ export function apply(ctx: Context, config: Config): void {
       const names = [...new Set(args.names)]
       const tools = catalog(ctx, exec.agent, resolved, exec.toolSet)
       const byName = new Map(tools.map(tool => [tool.name, tool]))
-      const unknown = names.filter(toolName => !byName.has(toolName))
-      if (unknown.length > 0) {
-        throw new Error('describe_tools received unknown or unavailable tool'
-          + (unknown.length === 1 ? '' : 's'))
+      const absent = names.filter(toolName => !byName.has(toolName))
+      if (absent.length > 0) {
+        const eager = absent.filter(toolName => {
+          const definition = ctx.tools.executable(toolName, exec.agent, exec.toolSet)
+          return definition !== undefined && !isDeferred(definition, resolved)
+        })
+        const missingCount = absent.length - eager.length
+        const messages: string[] = []
+        if (missingCount > 0) {
+          messages.push('describe_tools received unknown or unavailable tool' + (missingCount === 1 ? '' : 's'))
+        }
+        if (eager.length > 0) {
+          messages.push(eager.join(', ') + (eager.length === 1
+            ? ' is already declared directly; call it without describe_tools'
+            : ' are already declared directly; call them without describe_tools'))
+        }
+        throw new Error(messages.join('. '))
       }
       const selected = names.map(toolName => byName.get(toolName) as CatalogTool)
       const result = {

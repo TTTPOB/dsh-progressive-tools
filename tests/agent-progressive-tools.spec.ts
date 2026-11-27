@@ -244,7 +244,7 @@ describe('dsh-progressive-tools', () => {
         if (mode === 'ptc') expect(described.sdk).toContain(name)
       }
       for (const name of eager) {
-        await expect(call(DESCRIBE_TOOLS_NAME, { names: [name] })).rejects.toThrow(/unknown or unavailable/)
+        await expect(call(DESCRIBE_TOOLS_NAME, { names: [name] })).rejects.toThrow(`${name} is already declared directly; call it without describe_tools`)
         if (mode === 'native') {
           await expect(call(INVOKE_TOOL_NAME, { name, arguments: {} })).rejects.toThrow(/unknown or unavailable/)
           expect(assembly.tools.find(tool => tool.name === name)?.deferLoading).not.toBe(true)
@@ -656,6 +656,17 @@ describe('dsh-progressive-tools', () => {
 
   })
 
+  it.each([
+    [['read_file'], 'read_file is already declared directly; call it without describe_tools'],
+    [['unknown_fixture'], 'describe_tools received unknown or unavailable tool'],
+    [['read_file', 'unknown_fixture', 'write_file', 'another_unknown_fixture'],
+      'describe_tools received unknown or unavailable tools. read_file, write_file are already declared directly; call them without describe_tools'],
+  ] as const)('reports describe errors for %j', async (names, message) => {
+    const mounted = await mount({ eagerTools: ['read_file', 'write_file'] }, { mode: 'native' })
+    const result = await direct(mounted, DESCRIBE_TOOLS_NAME, { names })
+    expect(result).toMatchObject({ isError: true, error: { message } })
+  })
+
   it.each(['native', 'ptc'] as const)('honors step conditions in %s declarations, discovery and dispatch', async mode => {
     const mounted = await mount({ eagerTools: ['conditional_eager'] }, { mode })
     let executed = 0
@@ -676,11 +687,14 @@ describe('dsh-progressive-tools', () => {
         ? directValue(await direct(mounted, name, args, toolSet)) : valueOf(await nested(mounted, name, args, toolSet))
       const found = await call(SEARCH_TOOLS_NAME, {}) as { matches: { name: string }[] }
       expect(found.matches.some(tool => tool.name === 'conditional_deferred')).toBe(model === 'enabled')
+      const describeEager = call(DESCRIBE_TOOLS_NAME, { names: ['conditional_eager'] })
       if (model === 'enabled') {
+        await expect(describeEager).rejects.toThrow('conditional_eager is already declared directly; call it without describe_tools')
         expect(await call(DESCRIBE_TOOLS_NAME, { names: ['conditional_deferred'] })).toMatchObject({ tools: [{ name: 'conditional_deferred' }] })
         await call('conditional_deferred', {})
         if (mode === 'native') await call(INVOKE_TOOL_NAME, { name: 'conditional_deferred', arguments: {} })
       } else {
+        await expect(describeEager).rejects.toThrow(/describe_tools received unknown or unavailable tool$/)
         await expect(call(DESCRIBE_TOOLS_NAME, { names: ['conditional_deferred'] })).rejects.toThrow(/unknown or unavailable/)
         await expect(call('conditional_deferred', {})).rejects.toThrow(mode === 'native' ? /unknown tool/ : /not a function/)
         if (mode === 'native') await expect(call(INVOKE_TOOL_NAME, { name: 'conditional_deferred', arguments: {} })).rejects.toThrow(/unknown or unavailable/)
