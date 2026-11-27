@@ -477,6 +477,7 @@ export function apply(ctx: Context, config: Config): void {
       const absent = names.filter(toolName => !byName.has(toolName))
       if (absent.length > 0) {
         const eager = absent.filter(toolName => {
+          if (DISCOVERY_NAMES.has(toolName)) return false
           const definition = ctx.tools.executable(toolName, exec.agent, exec.toolSet)
           return definition !== undefined && !isDeferred(definition, resolved)
         })

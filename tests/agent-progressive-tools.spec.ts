@@ -667,6 +667,15 @@ describe('dsh-progressive-tools', () => {
     expect(result).toMatchObject({ isError: true, error: { message } })
   })
 
+  it('does not tell PTC callers to call disclosure controls directly', async () => {
+    const mounted = await mount({}, { mode: 'ptc' })
+    for (const name of [INVOKE_TOOL_NAME, RUN_CODE_NAME, SEARCH_TOOLS_NAME, DESCRIBE_TOOLS_NAME]) {
+      const result = await nested(mounted, DESCRIBE_TOOLS_NAME, { names: [name] })
+      expect(result).toMatchObject({ isError: true, error: { message: expect.stringContaining('unknown or unavailable tool') } })
+      expect(result).not.toMatchObject({ error: { message: expect.stringContaining('already declared directly') } })
+    }
+  })
+
   it.each(['native', 'ptc'] as const)('honors step conditions in %s declarations, discovery and dispatch', async mode => {
     const mounted = await mount({ eagerTools: ['conditional_eager'] }, { mode })
     let executed = 0
